@@ -552,8 +552,8 @@ private fun StatTile(label: String, value: String, sub: String, modifier: Modifi
 private fun ChecklistCard(activity: MainActivity, state: UiState, askPermissions: () -> Unit) {
     SectionCard {
         CardTitle("Réglages du téléphone")
-        CheckRow(Icons.Filled.Email, "Réception des SMS", "Indispensable pour lire les confirmations", state.smsPermission, "Autoriser", askPermissions)
-        CheckRow(Icons.Filled.Notifications, "Notifications", "Affiche l'état de la passerelle", state.notifPermission, "Autoriser", askPermissions)
+        CheckRow(Icons.Filled.Email, "Réception des SMS", "Indispensable pour lire les confirmations", state.smsPermission, "Autoriser", onClick = askPermissions)
+        CheckRow(Icons.Filled.Notifications, "Notifications", "Affiche l'état de la passerelle", state.notifPermission, "Autoriser", onClick = askPermissions)
         CheckRow(Icons.Filled.Lock, "Fonctionnement en continu", "Désactive l'économie de batterie pour l'app", state.batteryOk, "Régler") { activity.openBatterySettings() }
         if (state.paired) {
             CheckRow(Icons.Filled.Settings, "Service de la passerelle", "Tourne en arrière-plan en permanence", state.serviceOn, "Démarrer", last = true) { activity.startGateway() }
