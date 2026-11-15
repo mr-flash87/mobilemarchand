@@ -1,0 +1,8 @@
+server/config.php
+server/data/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.zip
