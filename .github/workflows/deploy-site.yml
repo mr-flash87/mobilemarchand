@@ -5,7 +5,7 @@ name: Mise en ligne du site (Hostinger)
 #   FTP_SERVER   : adresse FTP (ex. ftp.monsite.com ou une IP)
 #   FTP_USERNAME : utilisateur FTP
 #   FTP_PASSWORD : mot de passe FTP
-#   FTP_DIR      : dossier du site sur le serveur, terminé par / (ex. public_html/pay/)
+#   (le dossier de destination est pay/, car le compte FTP démarre déjà dans public_html/)
 # config.php, data/ et install.php ne sont jamais envoyés : les réglages et la base restent intacts.
 
 on:
@@ -33,7 +33,7 @@ jobs:
           FTP_DIR: ${{ secrets.FTP_DIR }}
         run: |
           missing=""
-          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD FTP_DIR; do
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD; do
             [ -z "${!v}" ] && missing="$missing $v"
           done
           for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD FTP_DIR; do
@@ -61,7 +61,8 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           local-dir: ./server/
-          server-dir: ${{ secrets.FTP_DIR }}
+          # Le compte FTP Hostinger démarre déjà dans public_html/
+          server-dir: pay/
           exclude: |
             **/.git*
             **/.git*/**
@@ -77,5 +78,5 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           local-dir: ./server-root/
-          server-dir: public_html/
+          server-dir: ./
           state-name: .ftp-deploy-root-state.json
