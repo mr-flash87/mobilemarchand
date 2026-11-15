@@ -55,6 +55,8 @@
       <div><label>Lire aussi les notifications de l'application (paquet Android)</label><input type="text" name="app_package" value="<?= h($o['app_package'] ?? '') ?>" placeholder="Ex. ^com\.wave\.">
         <span class="small muted">Laisser vide si l'opérateur prévient par SMS. Pour Wave : <code>^com\.wave\.</code></span></div>
       <div><label>Couleur</label><input type="color" name="color" value="<?= h($o['color'] ?: '#0b5fff') ?>" class="op-color"></div>
+      <div><label>Frais payés par le client (%)</label><input type="text" inputmode="decimal" name="fee_percent" value="<?= h(rtrim(rtrim(number_format((float)($o['fee_percent'] ?? 0), 2, '.', ''), '0'), '.')) ?>" placeholder="0">
+        <span class="small muted">Ex. Wave : 0,5. Le client est alors invité à remplir « Montant reçu » pour que vous receviez le montant exact.</span></div>
       <div style="grid-column:1/-1"><label>Instructions affichées au client (optionnel)</label>
         <textarea name="instructions" rows="2" style="min-height:56px;font-family:inherit"><?= h($o['instructions']) ?></textarea></div>
     </div>

@@ -47,11 +47,33 @@ view('_head', ['title' => 'Paiement ' . $p['reference'], 'noindex' => true]);
             <?php elseif ($o['pay_link']): ?>
               <li>Appuyez sur le bouton ci-dessous pour payer avec <?= h($o['name']) ?>.</li>
             <?php else: ?>
-              <li>Envoyez exactement <strong><?= h(fmt_amount($p['amount'], 'F')) ?></strong> au numéro <strong><?= h($o['merchant_number']) ?></strong> avec <?= h($o['name']) ?>.</li>
+              <li><?php if ($o['fee_percent'] > 0): ?>Avec <?= h($o['name']) ?>, envoyez de l'argent au numéro <strong><?= h($o['merchant_number']) ?></strong> en faisant <strong>recevoir</strong> exactement <strong><?= h(fmt_amount($p['amount'], 'F')) ?></strong> (voir ci-dessous).
+                <?php else: ?>Envoyez exactement <strong><?= h(fmt_amount($p['amount'], 'F')) ?></strong> au numéro <strong><?= h($o['merchant_number']) ?></strong> avec <?= h($o['name']) ?>.<?php endif; ?></li>
             <?php endif; ?>
             <li>Restez sur cette page : la confirmation est automatique, en général en moins d'une minute.</li>
           </ol>
           <?php if ($o['instructions']): ?><p class="op-note"><?= nl2br(h($o['instructions'])) ?></p><?php endif; ?>
+
+          <?php if ($o['fee_percent'] > 0): ?>
+            <div class="fee-box">
+              <div class="fee-row"><span>Montant à faire <strong>recevoir</strong></span><strong class="fee-big"><?= h(fmt_amount($p['amount'], 'F')) ?></strong></div>
+              <div class="fee-row muted"><span>Vous paierez environ (frais <?= h($o['name']) ?> <?= h(rtrim(rtrim(number_format($o['fee_percent'], 2, ',', ''), '0'), ',')) ?> % inclus)</span><span><?= h(fmt_amount($o['amount_to_send'], 'F')) ?></span></div>
+              <p class="small" style="margin:8px 0 0">⚠️ Dans <?= h($o['name']) ?>, saisissez <strong><?= h(fmt_amount($p['amount'], 'F')) ?></strong> dans le champ <strong>« Montant reçu »</strong>, et non dans « Montant envoyé ». Sinon le montant reçu sera plus petit et le paiement ne sera pas reconnu.</p>
+            </div>
+            <?php if ($o['code'] === 'wave'): ?>
+              <div class="wave-demo" aria-hidden="true">
+                <div class="wd-title">Envoyer de l'argent</div>
+                <div class="wd-label">À</div>
+                <div class="wd-value"><?= h($o['merchant_number'] ?: 'Numéro marchand') ?></div>
+                <div class="wd-label">Montant envoyé</div>
+                <div class="wd-field wd-auto"><?= h(fmt_amount($o['amount_to_send'], 'F')) ?> <em>calculé par Wave</em></div>
+                <div class="wd-label wd-hl-label">Montant reçu 👈 tapez ici</div>
+                <div class="wd-field wd-hl"><?= h(number_format($p['amount'], 0, ',', ' ')) ?></div>
+                <div class="wd-btn">Envoyer</div>
+              </div>
+              <p class="small muted" style="text-align:center;margin-top:6px">Illustration de l'écran « Envoyer de l'argent » de Wave</p>
+            <?php endif; ?>
+          <?php endif; ?>
 
           <?php if ($main): ?>
             <a class="btn big op-btn" href="<?= h($main['link']) ?>">📞 Payer <?= h(fmt_amount($p['amount'])) ?> avec <?= h($o['name']) ?></a>

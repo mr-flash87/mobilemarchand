@@ -608,6 +608,7 @@ function admin_operators(string $method): void
                 'active' => !empty($_POST['active']) ? 1 : 0,
                 'ussd_primary' => max(0, (int)($_POST['ussd_primary'] ?? 0)),
                 'ussd_show_alt' => !empty($_POST['ussd_show_alt']) ? 1 : 0,
+                'fee_percent' => max(0, min(20, (float)str_replace(',', '.', (string)($_POST['fee_percent'] ?? '0')))),
             ];
         };
         $check = function (array $f): ?string {

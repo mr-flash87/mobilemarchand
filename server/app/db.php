@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -292,6 +292,12 @@ function db_migrate(): void
     }
     if ($v < 8) {
         db_add_column('merchants', 'paid_until', 'DATETIME NULL', 'TEXT NULL');
+    }
+    if ($v < 10) {
+        db_add_column('operators', 'fee_percent', 'DECIMAL(5,2) NULL', 'REAL NULL');
+        q("UPDATE operators SET fee_percent = 0.5 WHERE code = 'wave' AND fee_percent IS NULL");
+        q('UPDATE operators SET instructions = ? WHERE instructions = ?', ["Ouvrez l'application Wave, touchez « Envoyer de l'argent » et saisissez le numéro indiqué.", "Ouvrez l'application Wave et payez le montant exact au numéro indiqué."]);
+        operators_reset_cache();
     }
     if ($v < 9) {
         sms_rules_upgrade_from_defaults(['Wave - argent reçu']);

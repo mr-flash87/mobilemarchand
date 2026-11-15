@@ -174,8 +174,18 @@ function operator_public(array $op, float $amount): array
         'ussd_link' => $opts[0]['link'] ?? null,
         'ussd_options' => $opts,
         'pay_link' => operator_pay_link($op, $amount),
+        // Frais à la charge du client (ex. Wave 0,5 %) : il doit faire RECEVOIR le montant exact.
+        'fee_percent' => (float)($op['fee_percent'] ?? 0),
+        'amount_to_send' => operator_amount_to_send($op, $amount),
         'instructions' => $op['instructions'] ?: null,
     ];
+}
+
+/** Montant que le client paie, frais de l'opérateur compris (arrondi au franc supérieur). */
+function operator_amount_to_send(array $op, float $amount): float
+{
+    $fee = (float)($op['fee_percent'] ?? 0);
+    return $fee > 0 ? (float)ceil($amount * (1 + $fee / 100)) : $amount;
 }
 
 /** Opérateurs à proposer au client pour ce paiement (ceux du marchand autonome, sinon ceux de la plateforme). */
@@ -232,7 +242,7 @@ function operators_seed(?int $scope = null): void
         ['orange', $scope === null ? (string)(setting('operator_name') ?: 'Orange Money') : 'Orange Money', '#ff7900', $scope === null ? (string)setting('merchant_number', '') : '', $oldCodes, '', 'orange|^OM$', '', $scope === null ? 1 : 0],
         ['moov', 'Moov Money', '#005baa', '', '', '', 'moov|flooz', '', 0],
         ['telecel', 'Telecel Money', '#e30613', '', '', '', 'telecel', '', 0],
-        ['wave', 'Wave', '#1dc4ff', '', '', '', 'wave', "Ouvrez l'application Wave et payez le montant exact au numéro indiqué.", 0],
+        ['wave', 'Wave', '#1dc4ff', '', '', '', 'wave', "Ouvrez l'application Wave, touchez « Envoyer de l'argent » et saisissez le numéro indiqué.", 0],
     ];
     foreach ($rows as $i => [$code, $name, $color, $num, $ussd, $link, $sender, $instr, $active]) {
         db_insert('operators', [
@@ -240,6 +250,7 @@ function operators_seed(?int $scope = null): void
             'pay_link' => $link, 'sms_sender' => $sender, 'instructions' => $instr, 'active' => $active,
             'sort_order' => $i + 1, 'created_at' => now(), 'merchant_id' => $scope,
             'app_package' => $code === 'wave' ? '^com\\.wave\\.' : null,
+            'fee_percent' => $code === 'wave' ? 0.5 : null,
         ]);
     }
 }
