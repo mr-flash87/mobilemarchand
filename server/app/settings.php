@@ -61,13 +61,53 @@ function setting_set(string $name, ?string $value): void
     setting('__reset__');
 }
 
-function ussd_code(float $amount): string
+/**
+ * Codes USSD proposés au client, un par ligne : "Libellé | modèle".
+ * Le premier est le code principal. Par défaut : l'ancien modèle unique + le paiement marchand.
+ * @return array<int, array{label:string, template:string}>
+ */
+function ussd_templates(): array
+{
+    $raw = setting('ussd_codes');
+    if ($raw === null || trim((string)$raw) === '') {
+        $raw = 'Transfert | ' . setting('ussd_template') . "\nPaiement marchand | *144*2*1*{number}*{amount}#";
+    }
+    $out = [];
+    foreach (preg_split('/\R/', (string)$raw) as $line) {
+        $line = trim($line);
+        if ($line === '') {
+            continue;
+        }
+        [$label, $tpl] = str_contains($line, '|') ? array_map('trim', explode('|', $line, 2)) : ['Code USSD', $line];
+        if ($tpl !== '') {
+            $out[] = ['label' => $label !== '' ? $label : 'Code USSD', 'template' => $tpl];
+        }
+    }
+    return $out ?: [['label' => 'Code USSD', 'template' => (string)setting('ussd_template')]];
+}
+
+function ussd_fill(string $template, float $amount): string
 {
     $number = preg_replace('/\D+/', '', (string)setting('merchant_number', ''));
-    return strtr((string)setting('ussd_template'), [
+    return strtr($template, [
         '{number}' => $number,
         '{amount}' => (string)(int)round($amount),
     ]);
+}
+
+/** @return array<int, array{label:string, code:string, link:string}> */
+function ussd_options(float $amount): array
+{
+    return array_map(function ($t) use ($amount) {
+        $code = ussd_fill($t['template'], $amount);
+        return ['label' => $t['label'], 'code' => $code, 'link' => ussd_link($code)];
+    }, ussd_templates());
+}
+
+/** Code USSD principal (le premier de la liste). */
+function ussd_code(float $amount): string
+{
+    return ussd_options($amount)[0]['code'];
 }
 
 function ussd_link(string $code): string

@@ -77,6 +77,9 @@ function admin_route(string $method, array $p): void
         case 'simulate':
             admin_simulate($method);
             return;
+        case 'push':
+            admin_push($method, $user);
+            return;
         case 'password':
             if ($method === 'POST') {
                 $new = (string)($_POST['new_password'] ?? '');
@@ -375,7 +378,7 @@ function admin_settings(string $method): void
     if ($method === 'POST') {
         $a = $_POST['action'] ?? 'save';
         if ($a === 'save') {
-            $fields = ['app_name', 'timezone', 'currency', 'operator_name', 'merchant_number', 'ussd_template',
+            $fields = ['app_name', 'timezone', 'currency', 'operator_name', 'merchant_number', 'ussd_codes',
                 'payment_expiry_minutes', 'min_amount', 'max_amount', 'late_match_minutes', 'support_whatsapp'];
             foreach ($fields as $f) {
                 if (isset($_POST[$f])) {
@@ -443,4 +446,40 @@ function admin_simulate(string $method): void
     $devices = q_all('SELECT id, name FROM devices WHERE active = 1');
     $pending = q_all("SELECT * FROM payments WHERE status = 'pending' ORDER BY id DESC LIMIT 10");
     admin_page('admin_simulate', 'Simuler un SMS', compact('result', 'devices', 'pending'));
+}
+
+/** Abonnement aux notifications (appelé en JavaScript depuis l'admin). */
+function admin_push(string $method, array $user): never
+{
+    if ($method !== 'POST') {
+        json_out(['public_key' => vapid_public_b64u(), 'supported' => webpush_supported()]);
+    }
+    $a = (string)($_POST['action'] ?? '');
+    $endpoint = (string)($_POST['endpoint'] ?? '');
+    if ($a === 'subscribe') {
+        if (!preg_match('#^https://#', $endpoint) || empty($_POST['p256dh']) || empty($_POST['auth'])) {
+            json_error('invalid_request', 'Abonnement invalide.', 422);
+        }
+        $hash = hash('sha256', $endpoint);
+        q('DELETE FROM push_subscriptions WHERE endpoint_hash = ?', [$hash]);
+        db_insert('push_subscriptions', [
+            'user_id' => $user['id'],
+            'endpoint' => mb_substr($endpoint, 0, 500),
+            'endpoint_hash' => $hash,
+            'p256dh' => mb_substr((string)$_POST['p256dh'], 0, 255),
+            'auth' => mb_substr((string)$_POST['auth'], 0, 100),
+            'user_agent' => mb_substr((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 255),
+            'created_at' => now(),
+        ]);
+        json_out(['ok' => true]);
+    }
+    if ($a === 'unsubscribe') {
+        q('DELETE FROM push_subscriptions WHERE endpoint_hash = ?', [hash('sha256', $endpoint)]);
+        json_out(['ok' => true]);
+    }
+    if ($a === 'test') {
+        $n = push_notify('🔔 Notifications activées', 'Vous serez prévenu à chaque paiement reçu.', 'admin', 'test');
+        json_out(['ok' => $n > 0, 'sent' => $n]);
+    }
+    json_error('invalid_request', 'Action inconnue.', 422);
 }

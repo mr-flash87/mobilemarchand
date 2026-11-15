@@ -29,13 +29,26 @@ view('_head', ['title' => 'Paiement ' . $p['reference'], 'noindex' => true]);
       <li>Appuyez sur le bouton ci-dessous (ou composez le code) et validez avec votre code secret.</li>
       <li>Restez sur cette page : la confirmation est automatique, en général en moins d'une minute.</li>
     </ol>
-    <a class="btn primary big" href="<?= h($pub['ussd_link']) ?>">📞 Payer <?= h(fmt_amount($p['amount'])) ?></a>
-    <p class="small muted" style="margin:12px 0 6px">Ou composez :</p>
-    <div class="ussd" id="ussd"><?= h($pub['ussd_code']) ?></div>
+    <?php $opts = $pub['ussd_options']; $main = $opts[0]; ?>
+    <a class="btn primary big" href="<?= h($main['link']) ?>">📞 Payer <?= h(fmt_amount($p['amount'])) ?></a>
+    <p class="small muted" style="margin:12px 0 6px">Ou composez<?= count($opts) > 1 ? ' (' . h($main['label']) . ')' : '' ?> :</p>
+    <div class="ussd"><?= h($main['code']) ?></div>
     <div class="row" style="margin-top:10px">
-      <button class="btn sm" type="button" onclick="copyText('<?= h($pub['ussd_code']) ?>', this)">Copier le code</button>
+      <button class="btn sm" type="button" onclick="copyText(<?= h(json_encode($main['code'])) ?>, this)">Copier le code</button>
       <span class="small muted">Numéro marchand : <strong><?= h(setting('merchant_number')) ?></strong></span>
     </div>
+    <?php if (count($opts) > 1): ?>
+      <details class="alt-codes">
+        <summary>Le code ne marche pas ? Autres façons de payer</summary>
+        <?php foreach (array_slice($opts, 1) as $o): ?>
+          <div class="alt-code">
+            <div><div class="small muted"><?= h($o['label']) ?></div><div class="mono"><?= h($o['code']) ?></div></div>
+            <a class="btn sm" href="<?= h($o['link']) ?>">📞 Composer</a>
+            <button class="btn sm" type="button" onclick="copyText(<?= h(json_encode($o['code'])) ?>, this)">Copier</button>
+          </div>
+        <?php endforeach; ?>
+      </details>
+    <?php endif; ?>
   </div>
 
   <p class="small muted" style="text-align:center">

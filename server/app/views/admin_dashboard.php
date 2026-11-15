@@ -51,6 +51,16 @@ $todayKey = array_key_last($days);
 </section>
 <?php endif; ?>
 
+<section class="card push-card" data-push-prompt hidden>
+  <span class="tile-ic blue"><?= icon('sms') ?></span>
+  <div class="push-text">
+    <strong>Soyez alerté à chaque paiement</strong>
+    <span class="small muted" data-push-status></span>
+  </div>
+  <button class="btn primary" type="button" data-push-enable hidden>Activer les notifications</button>
+  <a class="btn" href="<?= h(url('admin/settings')) ?>#app">Comment faire ?</a>
+</section>
+
 <div class="kpis">
   <section class="hero-tile">
     <div class="hero-top"><?= icon('wallet', 18) ?> Encaissé aujourd'hui</div>

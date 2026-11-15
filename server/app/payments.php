@@ -100,6 +100,7 @@ function payment_public(array $p, bool $full = true): array
         'merchant_number' => (string)setting('merchant_number'),
         'ussd_code' => $code,
         'ussd_link' => ussd_link($code),
+        'ussd_options' => ussd_options((float)$p['amount']),
         'checkout_url' => abs_url('pay/' . $p['reference']),
         'operator_txn_id' => $p['operator_txn_id'],
         'created_at' => iso($p['created_at']),
@@ -140,6 +141,15 @@ function payment_mark_paid(array $payment, ?array $sms, string $how = 'auto'): b
     }
     log_line("payment {$payment['reference']} paid ($how)");
     webhook_queue($payment['id'], 'payment.succeeded');
+    if ($how !== 'manual') {
+        $m = $payment['merchant_id'] ? q_val('SELECT name FROM merchants WHERE id = ?', [$payment['merchant_id']]) : null;
+        push_notify(
+            '💰 Paiement reçu : ' . fmt_amount($payment['amount'], 'F'),
+            'De ' . $payment['payer_phone'] . ($m ? ' · ' . $m : '') . ' · ' . $payment['reference'],
+            'admin/payments/' . $payment['reference'],
+            'pay-' . $payment['reference']
+        );
+    }
     return true;
 }
 
@@ -264,6 +274,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         $row['payment_id'] = $payment['id'] ?? null; // candidat, pas encore validé
         $id = db_insert('sms_messages', $row);
         log_line("sms #$id en revue: $suspect");
+        push_notify('🔎 SMS à vérifier : ' . fmt_amount($parsed['amount'], 'F'), $suspect, 'admin/sms?status=review', 'sms-' . $id);
         return ['id' => $id, 'status' => 'review', 'payment' => null];
     }
 
@@ -278,5 +289,11 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
     if ($payment && payment_mark_paid($payment, $sms)) {
         return ['id' => $id, 'status' => 'matched', 'payment' => $payment['reference']];
     }
+    push_notify(
+        '⚠️ Argent reçu sans paiement : ' . fmt_amount($parsed['amount'], 'F'),
+        'De ' . ($parsed['phone'] ?: 'numéro inconnu') . '. Rapprochez-le dans l\'admin.',
+        'admin/sms?status=unmatched',
+        'sms-' . $id
+    );
     return ['id' => $id, 'status' => 'unmatched', 'payment' => null];
 }

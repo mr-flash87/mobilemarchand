@@ -22,6 +22,28 @@ try {
         case '':
             view('home');
             break;
+        case 'manifest.webmanifest':
+            header('Content-Type: application/manifest+json; charset=utf-8');
+            header('Cache-Control: public, max-age=3600');
+            echo json_encode([
+                'name' => app_name() . ' – Espace marchand',
+                'short_name' => app_name(),
+                'description' => 'Suivi des paiements Mobile Money et notifications en temps réel.',
+                'id' => url('admin'),
+                'start_url' => url('admin'),
+                'scope' => url('') ,
+                'display' => 'standalone',
+                'orientation' => 'portrait',
+                'background_color' => '#0b1224',
+                'theme_color' => '#0b1224',
+                'lang' => 'fr',
+                'icons' => [
+                    ['src' => url('assets/icon-192.png'), 'sizes' => '192x192', 'type' => 'image/png'],
+                    ['src' => url('assets/icon-512.png'), 'sizes' => '512x512', 'type' => 'image/png'],
+                    ['src' => url('assets/icon-maskable-512.png'), 'sizes' => '512x512', 'type' => 'image/png', 'purpose' => 'maskable'],
+                ],
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
         case 'docs':
             view('docs');
             break;

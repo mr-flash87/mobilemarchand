@@ -187,6 +187,16 @@ function db_schema(string $driver): array
         updated_at $dt NOT NULL
     )$engine";
     $t[] = "CREATE INDEX idx_wh_next ON webhook_deliveries (status, next_attempt_at)";
+    $t[] = "CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id $pk,
+        user_id $fk NULL,
+        endpoint VARCHAR(500) NOT NULL,
+        endpoint_hash CHAR(64) NOT NULL UNIQUE,
+        p256dh VARCHAR(255) NOT NULL,
+        auth VARCHAR(100) NOT NULL,
+        user_agent VARCHAR(255) NULL,
+        created_at $dt NOT NULL
+    )$engine";
     return $t;
 }
 
@@ -202,4 +212,16 @@ function db_install_schema(PDO $pdo, string $driver): void
             }
         }
     }
+}
+
+/** Version du schéma : les tables ajoutées après l'installation sont créées automatiquement. */
+const SCHEMA_VERSION = 2;
+
+function db_migrate(): void
+{
+    if ((int)setting('schema_version', '1') >= SCHEMA_VERSION) {
+        return;
+    }
+    db_install_schema(db(), db_driver());
+    setting_set('schema_version', (string)SCHEMA_VERSION);
 }

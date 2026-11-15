@@ -6,8 +6,10 @@
     <div><label>Nom de la plateforme</label><input type="text" name="app_name" value="<?= h(setting('app_name')) ?>"></div>
     <div><label>Opérateur affiché</label><input type="text" name="operator_name" value="<?= h(setting('operator_name')) ?>"></div>
     <div><label>Numéro marchand (qui reçoit les paiements)</label><input type="tel" name="merchant_number" value="<?= h(setting('merchant_number')) ?>" placeholder="70000000"></div>
-    <div><label>Modèle du code USSD</label><input type="text" name="ussd_template" value="<?= h(setting('ussd_template')) ?>">
-      <span class="small muted"><code>{number}</code> = numéro marchand, <code>{amount}</code> = montant. Aperçu 5000 F : <code><?= h(ussd_code(5000)) ?></code></span></div>
+    <div style="grid-column:1/-1"><label>Codes USSD proposés au client (un par ligne : <code>Libellé | code</code>)</label>
+      <textarea name="ussd_codes" rows="3" style="min-height:80px"><?= h(implode("\n", array_map(fn($t) => $t['label'] . ' | ' . $t['template'], ussd_templates()))) ?></textarea>
+      <span class="small muted"><code>{number}</code> = numéro marchand, <code>{amount}</code> = montant. Le <strong>premier</strong> est le bouton principal, les autres sont proposés en alternative.<br>
+      Aperçu pour 5000 F : <?php foreach (ussd_options(5000) as $o): ?><code><?= h($o['label'] . ' : ' . $o['code']) ?></code> <?php endforeach; ?></span></div>
     <div><label>Expiration d'un paiement (minutes)</label><input type="number" name="payment_expiry_minutes" value="<?= h(setting('payment_expiry_minutes')) ?>" min="5"></div>
     <div><label>Rapprocher un SMS arrivé avant la demande (minutes)</label><input type="number" name="late_match_minutes" value="<?= h(setting('late_match_minutes')) ?>" min="1"></div>
     <div><label>Montant minimum</label><input type="number" name="min_amount" value="<?= h(setting('min_amount')) ?>"></div>
@@ -23,6 +25,32 @@
     <span>Si le SMS ne contient pas le numéro du payeur, valider sur le <strong>montant seul</strong> quand un seul paiement en attente a ce montant (moins sûr).</span></label>
   <p></p><button class="btn primary">Enregistrer</button>
 </form>
+
+<section class="card" id="app">
+  <h2>Application & notifications</h2>
+  <p class="muted small">Installez l'espace marchand comme une application sur votre téléphone ou ordinateur, et recevez une notification à chaque paiement reçu (et quand un SMS doit être vérifié).</p>
+  <div class="grid g2">
+    <div class="app-box">
+      <h3><?= icon('phone', 16) ?> Installer l'application</h3>
+      <p class="small"><strong>Android / ordinateur (Chrome, Edge)</strong> : bouton ci-dessous, ou menu ⋮ → « Installer l'application ».</p>
+      <button class="btn primary sm" type="button" data-pwa-install hidden>Installer maintenant</button>
+      <p class="small" style="margin-top:10px"><strong>iPhone (Safari)</strong> : bouton Partager <span aria-hidden="true">⬆️</span> → « Sur l'écran d'accueil », puis ouvrez l'application depuis son icône.</p>
+      <p class="small alert warn" data-ios-hint hidden>Sur iPhone, les notifications ne fonctionnent qu'une fois l'application ajoutée à l'écran d'accueil (iOS 16.4 ou plus récent).</p>
+    </div>
+    <div class="app-box">
+      <h3><?= icon('sms', 16) ?> Notifications sur cet appareil</h3>
+      <p class="small" data-push-status>Chargement…</p>
+      <div class="row">
+        <button class="btn primary sm" type="button" data-push-enable hidden>Activer les notifications</button>
+        <span data-push-on hidden class="row">
+          <button class="btn sm" type="button" data-push-test>Envoyer une notification de test</button>
+          <button class="btn sm danger" type="button" data-push-disable>Désactiver</button>
+        </span>
+      </div>
+      <p class="small muted" style="margin-top:10px">À activer sur chaque appareil où vous voulez être alerté.</p>
+    </div>
+  </div>
+</section>
 
 <form class="card" method="post" id="rules">
   <?= csrf_field() ?>

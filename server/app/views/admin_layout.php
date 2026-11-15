@@ -32,6 +32,7 @@ $hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1') > 0;
       <a href="<?= h(url('')) ?>" target="_blank"><?= icon('globe') ?><span>Voir le site</span></a>
     </nav>
     <div class="side-foot">
+      <button class="side-install" type="button" data-pwa-install hidden><?= icon('phone', 16) ?> Installer l'application</button>
       <div class="gw-status <?= $online ? 'is-on' : ($hasDevice ? 'is-off' : '') ?>">
         <span class="dot"></span>
         <span><?= $online ? 'Passerelle en ligne' : ($hasDevice ? 'Passerelle hors ligne' : 'Aucun téléphone') ?></span>
@@ -63,4 +64,6 @@ $hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1') > 0;
     </main>
   </div>
 </div>
+<script>window.FP = <?= json_encode(['base' => base_path(), 'csrf' => csrf_token(), 'vapid' => webpush_supported() ? vapid_public_b64u() : '']) ?>;</script>
+<script src="<?= h(url('assets/pwa.js')) ?>?v=<?= @filemtime(APP_ROOT . '/assets/pwa.js') ?: APP_VERSION ?>" defer></script>
 </body></html>
