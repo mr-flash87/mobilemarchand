@@ -53,7 +53,9 @@ $sections = [
     'ussd' => 'Codes USSD',
     'webhooks' => 'Webhooks',
     'verify' => 'Signature',
-    'ui' => 'Interface',
+    'ui' => 'Afficher le paiement',
+    'widget' => 'Widget intégré',
+    'custom' => 'Votre propre écran',
     'errors' => 'Erreurs',
     'test' => 'Tester',
 ];
@@ -98,9 +100,9 @@ $sections = [
       <section id="flux">
         <h2>Déroulement d'un paiement</h2>
         <ol class="steps">
-          <li>Votre serveur appelle <code>POST /payments</code> avec le montant et le numéro du client.</li>
+          <li>Votre serveur appelle <code>POST /payments</code> avec le montant (et, si vous le connaissez, le numéro du client).</li>
           <li>Vous redirigez le client vers <code>checkout_url</code>, ou vous affichez vous-même le code USSD.</li>
-          <li>Le client paie <strong>depuis le numéro indiqué</strong> : c'est lui qui permet de reconnaître son paiement.</li>
+          <li>Le client choisit son moyen de paiement, indique son numéro, puis paie <strong>depuis ce numéro</strong> : c'est lui qui permet de reconnaître son paiement.</li>
           <li>Dès réception du SMS, le paiement passe à <code>paid</code> et votre serveur reçoit le webhook <code>payment.succeeded</code>.</li>
           <li>Vous vérifiez la signature du webhook, puis vous livrez la commande.</li>
         </ol>
@@ -119,7 +121,7 @@ $sections = [
         <h2>Créer un paiement</h2>
         <?php doc_params([
             ['amount', 'entier', true, "Montant en $cur (entre " . h(setting('min_amount')) . ' et ' . h(setting('max_amount')) . ').'],
-            ['payer_phone', 'texte', true, 'Numéro qui va payer, ex. <code>70123456</code> ou <code>+22670123456</code>.'],
+            ['payer_phone', 'texte', false, 'Numéro qui va payer, ex. <code>70123456</code>. Facultatif : s\'il est absent, le client le saisit sur la page de paiement (ou dans votre écran, voir <a href="#custom">plus bas</a>).'],
             ['reference', 'texte', false, 'Votre identifiant de commande.'],
             ['operator', 'texte', false, 'Code de l\'opérateur à imposer (' . ($readyOps ? implode(', ', array_map(fn($o) => '<code>' . h($o['code']) . '</code>', $readyOps)) : '<code>orange</code>…') . '). Sans ce champ, le client choisit son opérateur sur la page de paiement.'],
             ['description', 'texte', false, 'Affiché au client sur la page de paiement.'],
@@ -226,11 +228,51 @@ $sections = [
       </section>
 
       <section id="ui">
-        <h2>Intégrer l'interface de paiement</h2>
+        <h2>Afficher le paiement à votre client</h2>
+        <p>Trois façons de faire, de la plus simple à la plus personnalisée. Dans tous les cas, le client suit le même parcours :
+          <strong>① il choisit son moyen de paiement → ② il indique son numéro → ③ il voit les consignes</strong> (code USSD, lien, frais Wave…).</p>
         <div class="dgrid two">
-          <div class="dcard"><strong>Option 1 : page hébergée</strong><span>Redirigez le client vers <code>checkout_url</code>. La page affiche le bouton d'appel USSD, suit le paiement en direct et renvoie vers votre <code>return_url</code>.</span></div>
-          <div class="dcard"><strong>Option 2 : votre interface</strong><span>Affichez un bouton <code>ussd_link</code>, puis interrogez <em>votre</em> serveur, qui appelle <code>GET /payments/{id}</code> toutes les 3 à 5 secondes jusqu'à <code>paid</code>.</span></div>
+          <div class="dcard"><strong>1. Redirection</strong><span>Envoyez le client vers <code>checkout_url</code>. Rien à développer. Il revient sur votre <code>return_url</code> une fois payé.</span></div>
+          <div class="dcard"><strong>2. Widget intégré (recommandé)</strong><span>La page de paiement s'affiche <em>dans</em> votre site, en 2 lignes de code. Toujours à jour : nouveaux opérateurs, frais, consignes.</span></div>
+          <div class="dcard"><strong>3. Votre propre écran</strong><span>Vous construisez l'interface vous-même à partir des données de l'API. Liberté totale, mais vous devez suivre les règles ci-dessous.</span></div>
         </div>
+      </section>
+
+      <section id="widget">
+        <h2>Widget intégré</h2>
+        <p>Créez le paiement côté serveur (<code>POST /payments</code>), puis affichez-le dans votre page :</p>
+        <?php doc_code(['HTML' => "<div id=\"paiement\"></div>\n<script src=\"" . abs_url('assets/widget.js') . "\"></script>\n<script>\n  FlashPay.mount('#paiement', {\n    payment: 'PAY-7KQ2M9XT4B',   // l'id renvoyé par POST /payments\n    onPaid: function (p) {\n      // le client a payé : affichez un message (la livraison se fait via le webhook)\n      window.location.href = '/merci?paiement=' + p.payment;\n    },\n    onStatus: function (p) { console.log('statut', p.status); } // expired, cancelled\n  });\n</script>"], 'widget'); ?>
+        <ul class="lp-list">
+          <li><?= icon('check', 16) ?> Les moyens de paiement que l'administrateur ajoute ou active apparaissent <strong>automatiquement</strong>.</li>
+          <li><?= icon('check', 16) ?> Les frais (ex. Wave) et l'aide « Montant reçu » s'affichent comme sur la page hébergée.</li>
+          <li><?= icon('check', 16) ?> La hauteur s'adapte toute seule ; fonctionne sur mobile.</li>
+        </ul>
+        <div class="callout warn"><?= icon('alert', 18) ?><div><code>onPaid</code> sert à l'affichage. Pour livrer la commande, fiez-vous au <a href="#webhooks">webhook signé</a>.</div></div>
+      </section>
+
+      <section id="custom">
+        <h2>Votre propre écran de paiement</h2>
+        <p>Toutes les informations sont dans l'objet paiement : la liste <code>operators</code> contient <strong>uniquement les moyens de paiement actifs</strong>.
+          Affichez-la telle quelle à chaque paiement (ne la recopiez pas en dur) : un opérateur ajouté par l'administrateur apparaîtra automatiquement chez vous.</p>
+        <div class="dp">
+          <div class="dp-row"><div class="dp-name"><code>operators[].name</code>, <code>color</code></div><div class="dp-desc">Nom et couleur à afficher sur le bouton de choix.</div></div>
+          <div class="dp-row"><div class="dp-name"><code>operators[].ussd_code</code>, <code>ussd_link</code></div><div class="dp-desc">Code à composer et lien <code>tel:</code> pour le bouton « Payer » (peut être vide, ex. Wave).</div></div>
+          <div class="dp-row"><div class="dp-name"><code>operators[].pay_link</code></div><div class="dp-desc">Lien de paiement de l'opérateur, s'il existe (ex. lien Wave).</div></div>
+          <div class="dp-row"><div class="dp-name"><code>operators[].merchant_number</code></div><div class="dp-desc">Numéro qui reçoit l'argent.</div></div>
+          <div class="dp-row"><div class="dp-name"><code>operators[].fee_percent</code></div><div class="dp-desc">Frais payés par le client chez cet opérateur (ex. <code>0.5</code> pour Wave). <code>0</code> = pas de frais.</div></div>
+          <div class="dp-row"><div class="dp-name"><code>operators[].amount_to_send</code></div><div class="dp-desc">Montant estimé que le client paiera, frais compris (arrondi au franc supérieur).</div></div>
+          <div class="dp-row"><div class="dp-name"><code>operators[].instructions</code></div><div class="dp-desc">Consignes à afficher telles quelles.</div></div>
+        </div>
+        <h3>Règle importante : les frais à la charge du client (Wave)</h3>
+        <p>Quand <code>fee_percent</code> est supérieur à 0, le client doit faire <strong>recevoir</strong> le montant exact. Affichez obligatoirement :</p>
+        <?php doc_code(['Texte à afficher' => "Montant à faire recevoir : 5 000 F\nVous paierez environ : 5 025 F (frais Wave 0,5 % inclus)\n\n⚠️ Dans Wave, saisissez 5 000 F dans le champ « Montant reçu »,\net non dans « Montant envoyé ». Sinon le paiement ne sera pas reconnu."], 'fee'); ?>
+        <div class="callout"><?= icon('book', 18) ?><div>Si le client tape le montant dans « Montant envoyé », vous recevez un peu moins (frais déduits) et le paiement reste en attente. L'administrateur peut alors le valider à la main.</div></div>
+        <h3>Numéro du client saisi dans votre écran</h3>
+        <p>Si vous n'avez pas transmis <code>payer_phone</code> à la création, envoyez-le dès que le client l'a saisi (depuis le navigateur, sans clé API) :</p>
+        <div class="ep"><span class="m post">POST</span><code>/api/public/payments/{id}/payer</code></div>
+        <?php doc_code(['JavaScript' => "await fetch('" . abs_url('api/public/payments') . "/' + paymentId + '/payer', {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ payer_phone: '70123456', operator: 'wave' })\n});"], 'payer'); ?>
+        <p>Pour suivre l'état depuis le navigateur : <code>GET /api/public/payments/{id}</code> (statut, opérateurs ; sans données sensibles) toutes les 3 à 5 secondes, jusqu'à <code>paid</code>.</p>
+        <?php doc_code(['HTML' => "<a href=\"tel:*144*10*70000000*5000%23\">Payer 5 000 F</a>\n<!-- dans un lien tel:, le # doit être écrit %23 -->"], 'tel'); ?>
       </section>
 
       <section id="errors">

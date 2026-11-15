@@ -108,13 +108,31 @@ function api_merchant(string $method, array $parts): never
 
 function api_public(string $method, array $parts): never
 {
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Headers: Content-Type');
+    header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+    if ($method === 'OPTIONS') {
+        http_response_code(204);
+        exit;
+    }
     run_maintenance_throttled();
-    if ($method === 'GET' && ($parts[0] ?? '') === 'payments' && !empty($parts[1])) {
+    if (($parts[0] ?? '') === 'payments' && !empty($parts[1])) {
         $p = payment_find((string)$parts[1]);
         if (!$p) {
             json_error('not_found', 'Paiement introuvable.', 404);
         }
-        json_out(payment_public($p, false));
+        if ($method === 'GET' && !isset($parts[2])) {
+            json_out(payment_public($p, false));
+        }
+        if ($method === 'POST' && ($parts[2] ?? '') === 'payer') {
+            $in = json_input();
+            try {
+                $p = payment_set_payer($p, (string)($in['payer_phone'] ?? ''), isset($in['operator']) ? (string)$in['operator'] : null);
+            } catch (InvalidArgumentException $e) {
+                json_error('invalid_request', $e->getMessage(), 422);
+            }
+            json_out(payment_public($p, false));
+        }
     }
     json_error('not_found', 'Route inconnue.', 404);
 }

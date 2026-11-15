@@ -489,3 +489,14 @@ html{scroll-behavior:smooth}
 @keyframes wdpulse{50%{box-shadow:0 0 0 4px rgba(29,196,255,.25)}}
 .wd-btn{margin-top:14px;background:#1dc4ff;color:#fff;text-align:center;border-radius:99px;padding:8px;font-weight:700}
 @media (prefers-reduced-motion:reduce){.wd-hl{animation:none}}
+/* Page de paiement en 3 étapes */
+.co-steps{list-style:none;display:flex;gap:6px;padding:0;margin:0 0 16px;counter-reset:cs}
+.co-steps li{flex:1;counter-increment:cs;font-size:.75rem;color:var(--muted);text-align:center;padding-top:8px;border-top:3px solid var(--line);font-weight:600}
+.co-steps li::before{content:counter(cs) ". "}
+.co-steps li.on{color:var(--brand);border-top-color:var(--brand)}
+.co-steps li.done{color:var(--ok);border-top-color:var(--ok)}
+.co-back{border:0;background:var(--bg);color:var(--muted);font:inherit;font-size:.82rem;font-weight:600;padding:5px 10px;border-radius:99px;cursor:pointer;margin-bottom:8px}
+.co-back:hover{color:var(--brand)}
+.op-tab{min-height:56px}
+.checkout.is-embed{padding:4px 2px 8px;max-width:none}
+.checkout.is-embed .card{box-shadow:none}

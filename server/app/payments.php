@@ -26,10 +26,11 @@ function payment_create(array $in, ?array $merchant): array
     if ($amount < $min || $amount > $max) {
         throw new InvalidArgumentException(sprintf('amount: doit être entre %s et %s.', $min, $max));
     }
+    // Numéro du payeur : facultatif. S'il est absent, le client le saisit sur la page de paiement.
     $phone = isset($in['payer_phone']) ? trim((string)$in['payer_phone']) : '';
-    $key = phone_key($phone);
-    if ($key === null) {
-        throw new InvalidArgumentException('payer_phone: numéro du payeur obligatoire (celui qui va payer).');
+    $key = $phone === '' ? null : phone_key($phone);
+    if ($phone !== '' && $key === null) {
+        throw new InvalidArgumentException('payer_phone: numéro invalide.');
     }
     foreach (['callback_url', 'return_url'] as $u) {
         if (!empty($in[$u]) && !filter_var($in[$u], FILTER_VALIDATE_URL)) {
@@ -63,7 +64,7 @@ function payment_create(array $in, ?array $merchant): array
         'external_ref' => isset($in['reference']) ? mb_substr((string)$in['reference'], 0, 190) : null,
         'amount' => $amount,
         'currency' => (string)setting('currency'),
-        'payer_phone' => preg_replace('/[^\d+]/', '', $phone),
+        'payer_phone' => $phone === '' ? null : preg_replace('/[^\d+]/', '', $phone),
         'payer_phone_key' => $key,
         'description' => isset($in['description']) ? mb_substr((string)$in['description'], 0, 255) : null,
         'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_UNICODE) : null,
@@ -134,7 +135,10 @@ function payment_public(array $p, bool $full = true): array
         $out['callback_url'] = $p['callback_url'];
         $out['return_url'] = $p['return_url'];
     } else {
+        // Page de paiement publique : on ne révèle pas le numéro, seulement s'il est déjà connu (masqué).
         unset($out['payer_phone']);
+        $out['payer_phone_set'] = !empty($p['payer_phone_key']);
+        $out['payer_phone_masked'] = $p['payer_phone'] ? substr($p['payer_phone'], 0, -6) . '••••' . substr($p['payer_phone'], -2) : null;
         $out['return_url'] = $p['status'] === 'paid' ? $p['return_url'] : null;
     }
     return $out;
@@ -338,4 +342,31 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         $scope
     );
     return ['id' => $id, 'status' => 'unmatched', 'payment' => null];
+}
+
+/**
+ * Le client indique, sur la page de paiement, l'opérateur choisi et le numéro avec lequel il paie.
+ * Possible tant que le paiement est en attente.
+ */
+function payment_set_payer(array $p, string $phone, ?string $operatorCode): array
+{
+    if ($p['status'] !== 'pending') {
+        throw new InvalidArgumentException('Ce paiement n\'est plus en attente.');
+    }
+    $key = phone_key($phone);
+    if ($key === null) {
+        throw new InvalidArgumentException('Numéro de téléphone invalide.');
+    }
+    $data = ['payer_phone' => preg_replace('/[^\d+]/', '', $phone), 'payer_phone_key' => $key];
+    if ($operatorCode !== null && $operatorCode !== '' && empty($p['operator_id'])) {
+        $op = operator_by_code($operatorCode, payment_scope($p));
+        if (!$op || !operator_ready($op)) {
+            throw new InvalidArgumentException('Moyen de paiement indisponible.');
+        }
+        // Mémorisé à titre indicatif : le paiement reste reconnu quel que soit l'opérateur utilisé.
+    }
+    db_update('payments', $data, "id = :id AND status = 'pending'", ['id' => $p['id']]);
+    $p = payment_find($p['reference']);
+    payment_try_late_match($p); // le client a peut-être déjà payé
+    return payment_find($p['reference']);
 }
