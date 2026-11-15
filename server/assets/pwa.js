@@ -36,7 +36,7 @@
   }
   function post(data) {
     var body = new URLSearchParams(data); body.append('_csrf', FP.csrf);
-    return fetch(FP.base + '/admin/push', { method: 'POST', body: body, credentials: 'same-origin' })
+    return fetch(FP.base + '/' + (FP.area || 'admin') + '/push', { method: 'POST', body: body, credentials: 'same-origin' })
       .then(function (r) { return r.json(); });
   }
   var messages = {

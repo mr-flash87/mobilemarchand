@@ -326,3 +326,99 @@ function icon(string $name, int $size = 18): string
     ][$name] ?? '';
     return '<svg class="ic" width="' . $size . '" height="' . $size . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . $p . '</svg>';
 }
+
+
+/* ------------------------------------------------------------------
+ *  Contexte de l'espace connecté : administrateur (/admin) ou marchand (/espace).
+ *  Un marchand « tenant » (inscrit lui-même) ne voit que ses propres données.
+ * ------------------------------------------------------------------ */
+
+function ctx_set(string $type, ?array $merchant = null): void
+{
+    $GLOBALS['__ctx'] = [
+        'type' => $type,
+        'mid' => $merchant ? (int)$merchant['id'] : null,
+        'merchant' => $merchant,
+        'base' => $type === 'merchant' ? 'espace' : 'admin',
+    ];
+}
+
+function ctx(): array
+{
+    return $GLOBALS['__ctx'] ?? ['type' => 'none', 'mid' => null, 'merchant' => null, 'base' => 'admin'];
+}
+
+function is_admin_ctx(): bool
+{
+    return ctx()['type'] !== 'merchant';
+}
+
+/** Identifiant du marchand connecté (null pour l'administrateur). */
+function ctx_mid(): ?int
+{
+    return ctx()['mid'];
+}
+
+/** URL dans l'espace courant : aurl('payments') -> /admin/payments ou /espace/payments */
+function aurl(string $path = ''): string
+{
+    return url(ctx()['base'] . ($path !== '' ? '/' . ltrim($path, '/') : ''));
+}
+
+function aredirect(string $path = ''): never
+{
+    redirect(ctx()['base'] . ($path !== '' ? '/' . ltrim($path, '/') : ''));
+}
+
+/** Périmètre (scope) d'un marchand : son id s'il est autonome (tenant), null s'il utilise la passerelle de la plateforme. */
+function merchant_scope(?array $m): ?int
+{
+    return $m && ($m['kind'] ?? 'internal') === 'tenant' ? (int)$m['id'] : null;
+}
+
+function payment_scope(array $p): ?int
+{
+    if (empty($p['merchant_id'])) {
+        return null;
+    }
+    $m = q_one('SELECT id, kind FROM merchants WHERE id = ?', [$p['merchant_id']]);
+    return merchant_scope($m);
+}
+
+/** Périmètre des opérateurs/téléphones dans le contexte courant. */
+function current_scope(): ?int
+{
+    return ctx_mid();
+}
+
+/** Condition SQL « colonne = périmètre » (NULL = plateforme). */
+function scope_sql(string $col, ?int $scope, array &$params): string
+{
+    if ($scope === null) {
+        return "$col IS NULL";
+    }
+    $params[] = $scope;
+    return "$col = ?";
+}
+
+/** Condition SQL sur les paiements appartenant à un périmètre. */
+function payments_scope_sql(?int $scope, array &$params, string $alias = ''): string
+{
+    $col = ($alias ? $alias . '.' : '') . 'merchant_id';
+    if ($scope !== null) {
+        $params[] = $scope;
+        return "$col = ?";
+    }
+    return "($col IS NULL OR $col IN (SELECT id FROM merchants WHERE kind <> 'tenant'))";
+}
+
+/** Condition SQL pour les listes : l'admin voit tout, un marchand seulement ses données. */
+function list_scope_sql(string $col, array &$params): string
+{
+    $mid = ctx_mid();
+    if ($mid === null) {
+        return '1=1';
+    }
+    $params[] = $mid;
+    return "$col = ?";
+}

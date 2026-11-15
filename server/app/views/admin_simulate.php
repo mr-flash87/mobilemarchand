@@ -3,8 +3,8 @@
 <?php if ($result): ?>
   <div class="alert <?= $result['status'] === 'matched' ? 'ok' : 'warn' ?>">
     Résultat : <strong><?= h(status_label($result['status'])) ?></strong>
-    <?php if ($result['payment']): ?> → paiement <a href="<?= h(url('admin/payments/' . $result['payment'])) ?>"><?= h($result['payment']) ?></a><?php endif; ?>
-    · <a href="<?= h(url('admin/sms')) ?>">voir le SMS #<?= (int)$result['id'] ?></a>
+    <?php if ($result['payment']): ?> → paiement <a href="<?= h(aurl('payments/' . $result['payment'])) ?>"><?= h($result['payment']) ?></a><?php endif; ?>
+    · <a href="<?= h(aurl('sms')) ?>">voir le SMS #<?= (int)$result['id'] ?></a>
   </div>
 <?php endif; ?>
 <div class="grid g2">

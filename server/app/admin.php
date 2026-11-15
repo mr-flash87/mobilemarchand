@@ -13,13 +13,15 @@ function admin_user(): ?array
 function admin_page(string $view, string $title, array $vars = []): void
 {
     $vars['title'] = $title;
-    $vars['user'] = admin_user();
+    $m = ctx()['merchant'];
+    $vars['user'] = is_admin_ctx() ? admin_user() : ['id' => $m['id'], 'email' => $m['email'] ?: $m['name']];
     $vars['view'] = $view;
     view('admin_layout', $vars);
 }
 
 function admin_route(string $method, array $p): void
 {
+    ctx_set('admin');
     header('X-Frame-Options: DENY');
     header('Cache-Control: no-store');
     $section = $p[0] ?? '';
@@ -34,10 +36,10 @@ function admin_route(string $method, array $p): void
             if ($u && password_verify((string)($_POST['password'] ?? ''), $u['password_hash'])) {
                 session_regenerate_id(true);
                 $_SESSION['uid'] = (int)$u['id'];
-                redirect('admin');
+                aredirect();
             }
             flash('Email ou mot de passe incorrect.', 'err');
-            redirect('admin/login');
+            aredirect('login');
         }
         view('admin_login');
         return;
@@ -45,7 +47,7 @@ function admin_route(string $method, array $p): void
 
     $user = admin_user();
     if (!$user) {
-        redirect('admin/login');
+        aredirect('login');
     }
     if ($method === 'POST') {
         csrf_check();
@@ -58,7 +60,7 @@ function admin_route(string $method, array $p): void
         case 'logout':
             $_SESSION = [];
             session_destroy();
-            redirect('admin/login');
+            aredirect('login');
         case 'payments':
             admin_payments($method, $p);
             return;
@@ -95,9 +97,9 @@ function admin_route(string $method, array $p): void
                     q('UPDATE users SET password_hash = ? WHERE id = ?', [password_hash($new, PASSWORD_DEFAULT), $user['id']]);
                     flash('Mot de passe modifié.');
                 }
-                redirect('admin/settings');
+                aredirect('settings');
             }
-            redirect('admin/settings');
+            aredirect('settings');
     }
     http_response_code(404);
     admin_page('admin_404', 'Introuvable');
@@ -113,14 +115,17 @@ function admin_dashboard(): void
     $yesterday = $toUtc((clone $localMidnight)->modify('-1 day'));
     $weekStart = (clone $localMidnight)->modify('-6 days');
 
+    // L'admin voit toute la plateforme, un marchand uniquement ses données.
+    $pw = function (array $params = []) { $sql = list_scope_sql('merchant_id', $params); return [$sql, $params]; };
+    [$w, $wp] = $pw();
     $stats = [
-        'paid_today' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND paid_at >= ?", [$today]),
-        'count_today' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'paid' AND paid_at >= ?", [$today]),
-        'paid_yesterday' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND paid_at >= ? AND paid_at < ?", [$yesterday, $today]),
-        'pending' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'pending'"),
-        'to_review' => (int)q_val("SELECT COUNT(*) FROM sms_messages WHERE status IN ('unmatched','review')"),
-        'paid_total' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid'"),
-        'count_total' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'paid'"),
+        'paid_today' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND paid_at >= ? AND " . $pw([$today])[0], $pw([$today])[1]),
+        'count_today' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'paid' AND paid_at >= ? AND " . $pw([$today])[0], $pw([$today])[1]),
+        'paid_yesterday' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND paid_at >= ? AND paid_at < ? AND " . $pw([$yesterday, $today])[0], $pw([$yesterday, $today])[1]),
+        'pending' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'pending' AND $w", $wp),
+        'to_review' => (int)q_val("SELECT COUNT(*) FROM sms_messages WHERE status IN ('unmatched','review') AND $w", $wp),
+        'paid_total' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND $w", $wp),
+        'count_total' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'paid' AND $w", $wp),
     ];
 
     // Encaissements des 7 derniers jours (un point par jour, y compris les jours à 0).
@@ -129,27 +134,33 @@ function admin_dashboard(): void
         $d = (clone $weekStart)->modify("+$i days");
         $days[$d->format('Y-m-d')] = ['label' => $d->format('d/m'), 'dow' => ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'][(int)$d->format('w')], 'amount' => 0.0, 'count' => 0];
     }
-    foreach (q_all("SELECT amount, paid_at FROM payments WHERE status = 'paid' AND paid_at >= ?", [$toUtc($weekStart)]) as $r) {
+    foreach (q_all("SELECT amount, paid_at FROM payments WHERE status = 'paid' AND paid_at >= ? AND " . $pw([$toUtc($weekStart)])[0], $pw([$toUtc($weekStart)])[1]) as $r) {
         $k = (new DateTime($r['paid_at'], new DateTimeZone('UTC')))->setTimezone($tz)->format('Y-m-d');
         if (isset($days[$k])) {
             $days[$k]['amount'] += (float)$r['amount'];
             $days[$k]['count']++;
         }
     }
-    $closed = q_one("SELECT SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS ok, COUNT(*) AS n FROM payments WHERE status IN ('paid','expired','cancelled') AND created_at >= ?", [$toUtc($weekStart)]);
+    $closed = q_one("SELECT SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS ok, COUNT(*) AS n FROM payments WHERE status IN ('paid','expired','cancelled') AND created_at >= ? AND " . $pw([$toUtc($weekStart)])[0], $pw([$toUtc($weekStart)])[1]);
     $stats['success_rate'] = $closed && (int)$closed['n'] > 0 ? round(100 * (int)$closed['ok'] / (int)$closed['n']) : null;
     $stats['week_total'] = array_sum(array_column($days, 'amount'));
 
-    $devices = q_all('SELECT * FROM devices WHERE active = 1 ORDER BY id');
-    $recent = q_all('SELECT p.*, m.name AS merchant_name FROM payments p LEFT JOIN merchants m ON m.id = p.merchant_id ORDER BY p.id DESC LIMIT 8');
-    $sms = q_all('SELECT * FROM sms_messages ORDER BY id DESC LIMIT 6');
+    $dp = [];
+    $devices = q_all('SELECT * FROM devices WHERE active = 1 AND ' . scope_sql('merchant_id', current_scope(), $dp) . ' ORDER BY id', $dp);
+    $rp = [];
+    $recent = q_all('SELECT p.*, m.name AS merchant_name FROM payments p LEFT JOIN merchants m ON m.id = p.merchant_id WHERE ' . list_scope_sql('p.merchant_id', $rp) . ' ORDER BY p.id DESC LIMIT 8', $rp);
+    $sp = [];
+    $sms = q_all('SELECT * FROM sms_messages WHERE ' . list_scope_sql('merchant_id', $sp) . ' ORDER BY id DESC LIMIT 6', $sp);
+    $dp = [];
 
     // Liste de mise en route.
     $setup = [
-        ['done' => (bool)array_filter(operators(true), 'operator_ready'), 'label' => 'Configurer vos opérateurs et numéros marchands', 'href' => 'admin/operators'],
-        ['done' => (bool)q_val('SELECT COUNT(*) FROM merchants'), 'label' => 'Créer un marchand et sa clé API', 'href' => 'admin/merchants'],
-        ['done' => (bool)q_val('SELECT COUNT(*) FROM devices WHERE token_hash IS NOT NULL AND active = 1'), 'label' => 'Associer le téléphone passerelle', 'href' => 'admin/devices'],
-        ['done' => $stats['count_total'] > 0, 'label' => 'Recevoir un premier paiement (ou le simuler)', 'href' => 'admin/simulate'],
+        ['done' => (bool)array_filter(operators(true), 'operator_ready'), 'label' => 'Configurer vos opérateurs et numéros marchands', 'href' => 'operators'],
+        is_admin_ctx()
+            ? ['done' => (bool)q_val('SELECT COUNT(*) FROM merchants'), 'label' => 'Créer un marchand et sa clé API', 'href' => 'merchants']
+            : ['done' => (ctx()['merchant']['status'] ?? '') === 'active', 'label' => 'Compte validé et clé API générée', 'href' => 'api'],
+        ['done' => (bool)q_val('SELECT COUNT(*) FROM devices WHERE token_hash IS NOT NULL AND active = 1 AND ' . scope_sql('merchant_id', current_scope(), $dp), $dp), 'label' => 'Associer le téléphone passerelle', 'href' => 'devices'],
+        ['done' => $stats['count_total'] > 0, 'label' => 'Recevoir un premier paiement (ou le simuler)', 'href' => 'simulate'],
     ];
     admin_page('admin_dashboard', 'Tableau de bord', compact('stats', 'days', 'devices', 'recent', 'sms', 'setup'));
 }
@@ -158,22 +169,27 @@ function admin_payments(string $method, array $p): void
 {
     $ref = $p[1] ?? null;
     if ($ref === 'new' && $method === 'POST') {
-        $merchant = !empty($_POST['merchant_id']) ? q_one('SELECT * FROM merchants WHERE id = ?', [(int)$_POST['merchant_id']]) : null;
+        $merchant = is_admin_ctx()
+            ? (!empty($_POST['merchant_id']) ? q_one('SELECT * FROM merchants WHERE id = ?', [(int)$_POST['merchant_id']]) : null)
+            : ctx()['merchant'];
         try {
             $pay = payment_create([
                 'amount' => $_POST['amount'] ?? null,
                 'payer_phone' => $_POST['payer_phone'] ?? null,
-                'description' => $_POST['description'] ?: 'Paiement créé depuis l\'admin',
+                'description' => ($_POST['description'] ?? '') ?: 'Paiement créé depuis l\'espace marchand',
             ], $merchant);
             flash('Paiement créé. Envoyez le lien au client.');
-            redirect('admin/payments/' . $pay['reference']);
+            aredirect('payments/' . $pay['reference']);
         } catch (InvalidArgumentException $e) {
             flash($e->getMessage(), 'err');
-            redirect('admin/payments');
+            aredirect('payments');
         }
     }
     if ($ref) {
         $pay = payment_find($ref);
+        if ($pay && !is_admin_ctx() && (int)$pay['merchant_id'] !== ctx_mid()) {
+            $pay = null; // un marchand ne voit que ses paiements
+        }
         if (!$pay) {
             http_response_code(404);
             admin_page('admin_404', 'Introuvable');
@@ -190,7 +206,7 @@ function admin_payments(string $method, array $p): void
                 webhook_queue((int)$pay['id'], $ev);
                 flash('Webhook renvoyé (voir l\'historique ci-dessous).');
             }
-            redirect('admin/payments/' . $ref);
+            aredirect('payments/' . $ref);
         }
         $merchant = $pay['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$pay['merchant_id']]) : null;
         $sms = $pay['sms_id'] ? q_one('SELECT * FROM sms_messages WHERE id = ?', [$pay['sms_id']]) : null;
@@ -200,8 +216,8 @@ function admin_payments(string $method, array $p): void
     }
     $status = (string)($_GET['status'] ?? '');
     $search = trim((string)($_GET['q'] ?? ''));
-    $where = '1=1';
     $params = [];
+    $where = list_scope_sql('p.merchant_id', $params);
     if ($status !== '') {
         $where .= ' AND p.status = ?';
         $params[] = $status;
@@ -211,7 +227,7 @@ function admin_payments(string $method, array $p): void
         array_push($params, "%$search%", "%$search%", "%$search%", "%$search%");
     }
     $rows = q_all("SELECT p.*, m.name AS merchant_name FROM payments p LEFT JOIN merchants m ON m.id = p.merchant_id WHERE $where ORDER BY p.id DESC LIMIT 200", $params);
-    $merchants = q_all('SELECT id, name FROM merchants WHERE active = 1 ORDER BY name');
+    $merchants = is_admin_ctx() ? q_all('SELECT id, name FROM merchants WHERE active = 1 ORDER BY name') : [];
     admin_page('admin_payments', 'Paiements', compact('rows', 'status', 'search', 'merchants'));
 }
 
@@ -219,9 +235,16 @@ function admin_sms(string $method, array $p): void
 {
     if ($method === 'POST' && !empty($p[1])) {
         $sms = q_one('SELECT * FROM sms_messages WHERE id = ?', [(int)$p[1]]);
+        if ($sms && !is_admin_ctx() && (int)$sms['merchant_id'] !== ctx_mid()) {
+            $sms = null;
+        }
+        $smsScope = $sms && $sms['merchant_id'] !== null ? (int)$sms['merchant_id'] : null;
         $a = $_POST['action'] ?? '';
         if ($sms && $a === 'match') {
             $pay = payment_find(trim((string)($_POST['reference'] ?? '')));
+            if ($pay && payment_scope($pay) !== $smsScope) {
+                $pay = null; // le SMS et le paiement doivent appartenir au même marchand
+            }
             if (!$pay) {
                 flash('Référence de paiement introuvable.', 'err');
             } elseif (!in_array($pay['status'], ['pending', 'expired'], true)) {
@@ -240,7 +263,7 @@ function admin_sms(string $method, array $p): void
             }
             db_update('sms_messages', ['status' => 'unmatched', 'note' => 'Vérifié par l\'admin'], 'id = :id', ['id' => $sms['id']]);
             $sms = q_one('SELECT * FROM sms_messages WHERE id = ?', [$sms['id']]);
-            $pay = $sms['payment_id'] ? q_one('SELECT * FROM payments WHERE id = ?', [$sms['payment_id']]) : payment_match_for((float)$sms['amount'], $sms['phone']);
+            $pay = $sms['payment_id'] ? q_one('SELECT * FROM payments WHERE id = ?', [$sms['payment_id']]) : payment_match_for((float)$sms['amount'], $sms['phone'], $smsScope);
             if ($pay && payment_mark_paid($pay, $sms, 'manual')) {
                 flash('SMS validé et paiement ' . $pay['reference'] . ' confirmé.');
             } else {
@@ -250,12 +273,16 @@ function admin_sms(string $method, array $p): void
             db_update('sms_messages', ['status' => 'ignored', 'note' => 'Ignoré par l\'admin'], 'id = :id', ['id' => $sms['id']]);
             flash('SMS ignoré.');
         }
-        redirect('admin/sms' . (!empty($_POST['back']) ? '?status=' . urlencode((string)$_POST['back']) : ''));
+        aredirect('sms' . (!empty($_POST['back']) ? '?status=' . urlencode((string)$_POST['back']) : ''));
     }
     $status = (string)($_GET['status'] ?? '');
-    $rows = $status !== ''
-        ? q_all('SELECT s.*, p.reference AS payment_ref FROM sms_messages s LEFT JOIN payments p ON p.id = s.payment_id WHERE s.status = ? ORDER BY s.id DESC LIMIT 200', [$status])
-        : q_all('SELECT s.*, p.reference AS payment_ref FROM sms_messages s LEFT JOIN payments p ON p.id = s.payment_id ORDER BY s.id DESC LIMIT 200');
+    $params = [];
+    $where = list_scope_sql('s.merchant_id', $params);
+    if ($status !== '') {
+        $where .= ' AND s.status = ?';
+        $params[] = $status;
+    }
+    $rows = q_all("SELECT s.*, p.reference AS payment_ref FROM sms_messages s LEFT JOIN payments p ON p.id = s.payment_id WHERE $where ORDER BY s.id DESC LIMIT 200", $params);
     admin_page('admin_sms', 'SMS reçus', compact('rows', 'status'));
 }
 
@@ -267,7 +294,7 @@ function admin_merchants(string $method, array $p): void
             $name = trim((string)($_POST['name'] ?? ''));
             if ($name === '') {
                 flash('Nom obligatoire.', 'err');
-                redirect('admin/merchants');
+                aredirect('merchants');
             }
             [$key, $prefix, $hash] = merchant_generate_key();
             db_insert('merchants', [
@@ -284,9 +311,20 @@ function admin_merchants(string $method, array $p): void
             start_session();
             $_SESSION['new_key'] = $key;
             flash('Marchand créé. Copiez la clé API maintenant : elle ne sera plus affichée.');
-            redirect('admin/merchants');
+            aredirect('merchants');
         }
         $m = q_one('SELECT * FROM merchants WHERE id = ?', [(int)($_POST['id'] ?? 0)]);
+        if ($m && ($m['kind'] ?? '') === 'tenant' && in_array($a, ['approve', 'suspend', 'reactivate'], true)) {
+            if ($a === 'approve' || $a === 'reactivate') {
+                db_update('merchants', ['status' => 'active', 'active' => 1], 'id = :id', ['id' => $m['id']]);
+                push_notify('✅ Compte validé', 'Vous pouvez générer votre clé API et encaisser vos premiers paiements.', 'api', 'approved', (int)$m['id']);
+                flash('Compte « ' . $m['name'] . ' » validé. Le marchand peut maintenant générer sa clé API.');
+            } else {
+                db_update('merchants', ['status' => 'suspended', 'active' => 0], 'id = :id', ['id' => $m['id']]);
+                flash('Compte « ' . $m['name'] . ' » suspendu : il ne peut plus se connecter ni utiliser l\'API.');
+            }
+            aredirect('merchants');
+        }
         if ($m) {
             if ($a === 'update') {
                 $url = trim((string)($_POST['webhook_url'] ?? ''));
@@ -325,14 +363,19 @@ function admin_merchants(string $method, array $p): void
                 }
             }
         }
-        redirect('admin/merchants');
+        aredirect('merchants');
     }
     start_session();
     $newKey = $_SESSION['new_key'] ?? null;
     unset($_SESSION['new_key']);
-    $rows = q_all("SELECT m.*, (SELECT COALESCE(SUM(amount),0) FROM payments p WHERE p.merchant_id = m.id AND p.status = 'paid') AS total_paid,
-        (SELECT COUNT(*) FROM payments p WHERE p.merchant_id = m.id AND p.status = 'paid') AS count_paid FROM merchants m ORDER BY m.id");
-    admin_page('admin_merchants', 'Marchands & clés API', compact('rows', 'newKey'));
+    $stat = "(SELECT COALESCE(SUM(amount),0) FROM payments p WHERE p.merchant_id = m.id AND p.status = 'paid') AS total_paid,
+        (SELECT COUNT(*) FROM payments p WHERE p.merchant_id = m.id AND p.status = 'paid') AS count_paid";
+    $rows = q_all("SELECT m.*, $stat FROM merchants m WHERE m.kind <> 'tenant' ORDER BY m.id");
+    $tenants = q_all("SELECT m.*, $stat,
+        (SELECT COUNT(*) FROM devices d WHERE d.merchant_id = m.id AND d.active = 1) AS device_count,
+        (SELECT COUNT(*) FROM operators o WHERE o.merchant_id = m.id AND o.active = 1) AS operator_count
+        FROM merchants m WHERE m.kind = 'tenant' ORDER BY CASE m.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, m.id DESC");
+    admin_page('admin_merchants', 'Marchands & clés API', compact('rows', 'newKey', 'tenants'));
 }
 
 function admin_devices(string $method, array $p): void
@@ -346,6 +389,7 @@ function admin_devices(string $method, array $p): void
                 'sim_number' => trim((string)($_POST['sim_number'] ?? '')) ?: null,
                 'pair_code' => $code,
                 'pair_expires_at' => ts_plus(1800),
+                'merchant_id' => current_scope(),
                 'active' => 1,
                 'created_at' => now(),
             ]);
@@ -356,7 +400,7 @@ function admin_devices(string $method, array $p): void
                 }
             }
             flash("Téléphone ajouté. Code d'association : $code (valable 30 min).");
-            redirect('admin/devices');
+            aredirect('devices');
         }
         if ($a === 'create_ios') {
             $token = 'dev_' . random_token(32);
@@ -365,15 +409,17 @@ function admin_devices(string $method, array $p): void
                 'sim_number' => trim((string)($_POST['sim_number'] ?? '')) ?: null,
                 'token_hash' => hash('sha256', $token),
                 'kind' => 'ios',
+                'merchant_id' => current_scope(),
                 'active' => 1,
                 'created_at' => now(),
             ]);
             start_session();
             $_SESSION['ios_token'] = $token;
             flash('iPhone ajouté. Suivez le guide ci-dessous pour créer l\'automatisation dans Raccourcis.');
-            redirect('admin/devices#ios-guide');
+            aredirect('devices#ios-guide');
         }
-        $d = q_one('SELECT * FROM devices WHERE id = ?', [(int)($_POST['id'] ?? 0)]);
+        $dpp = [(int)($_POST['id'] ?? 0)];
+        $d = q_one('SELECT * FROM devices WHERE id = ? AND ' . scope_sql('merchant_id', current_scope(), $dpp), $dpp);
         if ($d) {
             if ($a === 'ios_token' && ($d['kind'] ?? '') === 'ios') {
                 $token = 'dev_' . random_token(32);
@@ -381,7 +427,7 @@ function admin_devices(string $method, array $p): void
                 start_session();
                 $_SESSION['ios_token'] = $token;
                 flash('Nouvelle clé générée : remplacez-la dans votre automatisation Raccourcis (l\'ancienne ne marche plus).');
-                redirect('admin/devices#ios-guide');
+                aredirect('devices#ios-guide');
             } elseif ($a === 'code') {
                 $code = (string)random_int(100000, 999999);
                 db_update('devices', ['pair_code' => $code, 'pair_expires_at' => ts_plus(1800)], 'id = :id', ['id' => $d['id']]);
@@ -399,9 +445,10 @@ function admin_devices(string $method, array $p): void
                 flash('Téléphone révoqué : il ne peut plus envoyer de SMS.');
             }
         }
-        redirect('admin/devices');
+        aredirect('devices');
     }
-    $rows = q_all('SELECT d.*, (SELECT COUNT(*) FROM sms_messages s WHERE s.device_id = d.id) AS sms_count FROM devices d ORDER BY d.active DESC, d.id');
+    $lp = [];
+    $rows = q_all('SELECT d.*, (SELECT COUNT(*) FROM sms_messages s WHERE s.device_id = d.id) AS sms_count FROM devices d WHERE ' . scope_sql('d.merchant_id', current_scope(), $lp) . ' ORDER BY d.active DESC, d.id', $lp);
     start_session();
     $iosToken = $_SESSION['ios_token'] ?? null;
     unset($_SESSION['ios_token']);
@@ -428,7 +475,7 @@ function admin_settings(string $method): void
                 setting_set('timezone', 'Africa/Ouagadougou');
             }
             flash('Réglages enregistrés.');
-            redirect('admin/settings');
+            aredirect('settings');
         }
         if ($a === 'rules' || $a === 'test') {
             $json = (string)($_POST['sms_rules'] ?? '');
@@ -450,7 +497,7 @@ function admin_settings(string $method): void
             } elseif ($a === 'rules') {
                 setting_set('sms_rules', json_encode($rules, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 flash('Règles SMS enregistrées.');
-                redirect('admin/settings#rules');
+                aredirect('settings#rules');
             }
             if ($a === 'test' && !$error) {
                 $testInput = ['sender' => (string)($_POST['test_sender'] ?? ''), 'body' => (string)($_POST['test_body'] ?? '')];
@@ -461,12 +508,12 @@ function admin_settings(string $method): void
         if ($a === 'reset_rules') {
             setting_set('sms_rules', setting_defaults()['sms_rules']);
             flash('Règles SMS réinitialisées.');
-            redirect('admin/settings#rules');
+            aredirect('settings#rules');
         }
         if ($a === 'cron_key') {
             setting_set('cron_key', bin2hex(random_bytes(16)));
             flash('Nouvelle clé cron générée.');
-            redirect('admin/settings#cron');
+            aredirect('settings#cron');
         }
     }
     $rulesJson ??= (string)setting('sms_rules');
@@ -477,11 +524,14 @@ function admin_simulate(string $method): void
 {
     $result = null;
     if ($method === 'POST') {
-        $device = !empty($_POST['device_id']) ? q_one('SELECT * FROM devices WHERE id = ?', [(int)$_POST['device_id']]) : null;
-        $result = sms_ingest($device, (string)($_POST['sender'] ?? ''), (string)($_POST['body'] ?? ''), (int)(microtime(true) * 1000), ($_POST['source'] ?? '') === 'notification' ? 'notification' : 'sms');
+        $sp = [(int)($_POST['device_id'] ?? 0)];
+        $device = !empty($_POST['device_id']) ? q_one('SELECT * FROM devices WHERE id = ? AND ' . scope_sql('merchant_id', current_scope(), $sp), $sp) : null;
+        $result = sms_ingest($device, (string)($_POST['sender'] ?? ''), (string)($_POST['body'] ?? ''), (int)(microtime(true) * 1000), ($_POST['source'] ?? '') === 'notification' ? 'notification' : 'sms', current_scope());
     }
-    $devices = q_all('SELECT id, name FROM devices WHERE active = 1');
-    $pending = q_all("SELECT * FROM payments WHERE status = 'pending' ORDER BY id DESC LIMIT 10");
+    $dp = [];
+    $devices = q_all('SELECT id, name FROM devices WHERE active = 1 AND ' . scope_sql('merchant_id', current_scope(), $dp), $dp);
+    $pp = [];
+    $pending = q_all("SELECT * FROM payments WHERE status = 'pending' AND " . payments_scope_sql(current_scope(), $pp) . ' ORDER BY id DESC LIMIT 10', $pp);
     admin_page('admin_simulate', 'Simuler un SMS', compact('result', 'devices', 'pending'));
 }
 
@@ -500,7 +550,8 @@ function admin_push(string $method, array $user): never
         $hash = hash('sha256', $endpoint);
         q('DELETE FROM push_subscriptions WHERE endpoint_hash = ?', [$hash]);
         db_insert('push_subscriptions', [
-            'user_id' => $user['id'],
+            'user_id' => is_admin_ctx() ? $user['id'] : null,
+            'merchant_id' => ctx_mid(),
             'endpoint' => mb_substr($endpoint, 0, 500),
             'endpoint_hash' => $hash,
             'p256dh' => mb_substr((string)$_POST['p256dh'], 0, 255),
@@ -515,7 +566,7 @@ function admin_push(string $method, array $user): never
         json_out(['ok' => true]);
     }
     if ($a === 'test') {
-        $n = push_notify('🔔 Notifications activées', 'Vous serez prévenu à chaque paiement reçu.', 'admin', 'test');
+        $n = push_notify('🔔 Notifications activées', 'Vous serez prévenu à chaque paiement reçu.', '', 'test', ctx_mid());
         json_out(['ok' => $n > 0, 'sent' => $n]);
     }
     json_error('invalid_request', 'Action inconnue.', 422);
@@ -565,11 +616,14 @@ function admin_operators(string $method): void
             } elseif ($code === '' || operator_by_code($code)) {
                 flash('Ce code d\'opérateur existe déjà ou est vide.', 'err');
             } else {
-                db_insert('operators', $f + ['code' => $code, 'sort_order' => count(operators()) + 1, 'created_at' => now()]);
+                db_insert('operators', $f + ['code' => $code, 'merchant_id' => current_scope(), 'sort_order' => count(operators()) + 1, 'created_at' => now()]);
                 flash('Opérateur « ' . $f['name'] . ' » ajouté.');
             }
         } else {
             $op = operator_by_id((int)($_POST['id'] ?? 0));
+            if (!operator_in_scope($op, current_scope())) {
+                $op = null; // un marchand ne modifie que ses opérateurs
+            }
             if (!$op) {
                 flash('Opérateur introuvable.', 'err');
             } elseif ($a === 'update') {
@@ -600,11 +654,13 @@ function admin_operators(string $method): void
                 }
             }
         }
-        redirect('admin/operators');
+        aredirect('operators');
     }
     $rows = operators();
     $stats = [];
-    foreach (q_all("SELECT paid_operator, COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE status = 'paid' GROUP BY paid_operator") as $r) {
+    $op = [];
+    $opw = payments_scope_sql(current_scope(), $op);
+    foreach (q_all("SELECT paid_operator, COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE status = 'paid' AND $opw GROUP BY paid_operator", $op) as $r) {
         $stats[(string)$r['paid_operator']] = $r;
     }
     admin_page('admin_operators', 'Opérateurs', compact('rows', 'stats'));

@@ -2,7 +2,7 @@
 $name = app_name();
 $op = operators_names();
 $wa = preg_replace('/\D+/', '', (string)setting('support_whatsapp'));
-$contact = $wa ? 'https://wa.me/' . $wa . '?text=' . rawurlencode('Bonjour, je souhaite utiliser ' . $name . ' pour encaisser des paiements.') : url('docs');
+$contact = url('espace/inscription');
 view('_head', ['title' => 'Paiements Mobile Money automatiques']);
 ?>
 <div class="lp">
@@ -16,7 +16,7 @@ view('_head', ['title' => 'Paiements Mobile Money automatiques']);
         <a href="#faq">FAQ</a>
       </nav>
       <div class="lp-actions">
-        <a class="btn lp-ghost" href="<?= h(url('admin/login')) ?>">Se connecter</a>
+        <a class="btn lp-ghost" href="<?= h(url('espace/connexion')) ?>">Se connecter</a>
         <a class="btn primary lp-hide-sm" href="<?= h($contact) ?>">Commencer</a>
       </div>
     </div>
@@ -186,7 +186,7 @@ view('_head', ['title' => 'Paiements Mobile Money automatiques']);
       </div>
       <div class="lp-cta">
         <a class="btn lp-btn-lg lp-white" href="<?= h($contact) ?>">Commencer <?= icon('arrow', 16) ?></a>
-        <a class="btn lp-btn-lg lp-outline" href="<?= h(url('admin/login')) ?>">Se connecter</a>
+        <a class="btn lp-btn-lg lp-outline" href="<?= h(url('espace/connexion')) ?>">Se connecter</a>
       </div>
     </div>
   </section>
@@ -196,7 +196,7 @@ view('_head', ['title' => 'Paiements Mobile Money automatiques']);
       <a class="lp-logo" href="<?= h(url('')) ?>"><span class="brand-mark"><?= icon('wallet', 16) ?></span><?= h($name) ?></a>
       <nav>
         <a href="<?= h(url('docs')) ?>">Documentation</a>
-        <a href="<?= h(url('admin/login')) ?>">Espace marchand</a>
+        <a href="<?= h(url('espace/connexion')) ?>">Espace marchand</a>
         <?php if ($wa): ?><a href="https://wa.me/<?= h($wa) ?>">Contact WhatsApp</a><?php endif; ?>
       </nav>
       <span class="muted small">© <?= date('Y') ?> <?= h($name) ?></span>

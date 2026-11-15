@@ -13,7 +13,7 @@
       <button class="btn">Filtrer</button>
     </div>
   </form>
-  <form class="card" id="new" method="post" action="<?= h(url('admin/payments/new')) ?>">
+  <form class="card" id="new" method="post" action="<?= h(aurl('payments/new')) ?>">
     <?= csrf_field() ?>
     <h2>Créer un lien de paiement</h2>
     <div class="row">
@@ -22,10 +22,10 @@
     </div>
     <div class="row" style="margin-top:8px">
       <input type="text" name="description" placeholder="Description (optionnel)" style="flex:1;min-width:160px">
-      <select name="merchant_id" style="width:auto">
+      <?php if (is_admin_ctx()): ?><select name="merchant_id" style="width:auto">
         <option value="">Sans marchand</option>
         <?php foreach ($merchants as $m): ?><option value="<?= (int)$m['id'] ?>"><?= h($m['name']) ?></option><?php endforeach; ?>
-      </select>
+      </select><?php endif; ?>
       <button class="btn primary">Créer</button>
     </div>
   </form>
@@ -35,7 +35,7 @@
     <tr><th>Référence</th><th>Marchand</th><th>Montant</th><th>Payeur</th><th>Opérateur</th><th>Statut</th><th>Créé</th><th>Payé</th></tr>
     <?php foreach ($rows as $p): ?>
       <tr>
-        <td><a class="mono small" href="<?= h(url('admin/payments/' . $p['reference'])) ?>"><?= h($p['reference']) ?></a>
+        <td><a class="mono small" href="<?= h(aurl('payments/' . $p['reference'])) ?>"><?= h($p['reference']) ?></a>
           <?php if ($p['external_ref']): ?><br><span class="small muted"><?= h($p['external_ref']) ?></span><?php endif; ?></td>
         <td class="small"><?= h($p['merchant_name'] ?? '—') ?></td>
         <td><strong><?= h(fmt_amount($p['amount'])) ?></strong></td>

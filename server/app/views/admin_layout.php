@@ -1,5 +1,7 @@
 <?php view('_head', ['title' => $title, 'noindex' => true]);
-$nav = [
+$isAdmin = is_admin_ctx();
+$merchantCtx = ctx()['merchant'];
+$nav = $isAdmin ? [
     '' => ['Tableau de bord', 'home'],
     'payments' => ['Paiements', 'card'],
     'sms' => ['SMS reçus', 'sms'],
@@ -8,24 +10,39 @@ $nav = [
     'devices' => ['Téléphones', 'phone'],
     'simulate' => ['Simulateur', 'flask'],
     'settings' => ['Réglages', 'gear'],
+] : [
+    '' => ['Tableau de bord', 'home'],
+    'payments' => ['Paiements', 'card'],
+    'sms' => ['SMS reçus', 'sms'],
+    'operators' => ['Mes opérateurs', 'wallet'],
+    'devices' => ['Mes téléphones', 'phone'],
+    'api' => ['Clés API & webhook', 'store'],
+    'simulate' => ['Simulateur', 'flask'],
+    'settings' => ['Mon compte', 'gear'],
 ];
 $current = explode('/', trim(substr((string)parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), strlen(base_path())), '/'))[1] ?? '';
-$toReview = (int)q_val("SELECT COUNT(*) FROM sms_messages WHERE status IN ('unmatched','review')");
-$online = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1 AND last_seen_at >= ?', [ts_plus(-600)]);
-$hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1') > 0;
+$lp = [];
+$toReview = (int)q_val("SELECT COUNT(*) FROM sms_messages WHERE status IN ('unmatched','review') AND " . list_scope_sql('merchant_id', $lp), $lp);
+$dp1 = [ts_plus(-600)];
+$online = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1 AND (last_seen_at >= ? OR kind = \'ios\') AND ' . scope_sql('merchant_id', current_scope(), $dp1), $dp1);
+$dp2 = [];
+$hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1 AND ' . scope_sql('merchant_id', current_scope(), $dp2), $dp2) > 0;
+$pendingMerchants = $isAdmin ? (int)q_val("SELECT COUNT(*) FROM merchants WHERE kind = 'tenant' AND status = 'pending'") : 0;
 ?>
 <div class="shell">
   <aside class="side" id="side">
-    <a class="side-brand" href="<?= h(url('admin')) ?>">
+    <a class="side-brand" href="<?= h(aurl()) ?>">
       <span class="brand-mark"><?= icon('wallet', 18) ?></span>
       <span><?= h(app_name()) ?></span>
     </a>
+    <?php if (!$isAdmin): ?><div class="side-merchant"><?= h($merchantCtx['name']) ?></div><?php endif; ?>
     <nav class="side-nav">
       <div class="side-label">Gestion</div>
       <?php foreach ($nav as $k => [$label, $ic]): ?>
-        <a class="<?= $current === $k ? 'on' : '' ?>" href="<?= h(url('admin' . ($k ? '/' . $k : ''))) ?>">
+        <a class="<?= $current === $k ? 'on' : '' ?>" href="<?= h(aurl($k)) ?>">
           <?= icon($ic) ?><span><?= h($label) ?></span>
           <?php if ($k === 'sms' && $toReview > 0): ?><em class="pill"><?= $toReview ?></em><?php endif; ?>
+          <?php if ($k === 'merchants' && $pendingMerchants > 0): ?><em class="pill"><?= $pendingMerchants ?></em><?php endif; ?>
         </a>
       <?php endforeach; ?>
       <div class="side-label">Intégration</div>
@@ -41,7 +58,7 @@ $hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1') > 0;
       <div class="side-user">
         <span class="avatar"><?= h(strtoupper(substr((string)($user['email'] ?? 'A'), 0, 1))) ?></span>
         <span class="side-email"><?= h($user['email'] ?? '') ?></span>
-        <form method="post" action="<?= h(url('admin/logout')) ?>"><?= csrf_field() ?>
+        <form method="post" action="<?= h(aurl('logout')) ?>"><?= csrf_field() ?>
           <button class="icon-btn" title="Déconnexion" aria-label="Déconnexion"><?= icon('logout') ?></button></form>
       </div>
     </div>
@@ -58,6 +75,9 @@ $hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1') > 0;
       <a class="icon-btn" href="<?= h(url('docs')) ?>" target="_blank" aria-label="Documentation"><?= icon('book') ?></a>
     </header>
     <main class="content">
+      <?php if (!$isAdmin && ($merchantCtx['status'] ?? '') === 'pending'): ?>
+        <div class="alert warn"><strong>Compte en attente de validation.</strong> Vous pouvez déjà configurer vos opérateurs et votre téléphone, et tester avec le simulateur. Les paiements réels et la clé API seront activés dès que l'administrateur aura validé votre compte.</div>
+      <?php endif; ?>
       <?php foreach (flash() as [$type, $msg]): ?>
         <div class="alert <?= h($type) ?>"><?= h($msg) ?></div>
       <?php endforeach; ?>
@@ -65,6 +85,6 @@ $hasDevice = (int)q_val('SELECT COUNT(*) FROM devices WHERE active = 1') > 0;
     </main>
   </div>
 </div>
-<script>window.FP = <?= json_encode(['base' => base_path(), 'csrf' => csrf_token(), 'vapid' => webpush_supported() ? vapid_public_b64u() : '']) ?>;</script>
+<script>window.FP = <?= json_encode(['base' => base_path(), 'area' => ctx()['base'], 'csrf' => csrf_token(), 'vapid' => webpush_supported() ? vapid_public_b64u() : '']) ?>;</script>
 <script src="<?= h(url('assets/pwa.js')) ?>?v=<?= @filemtime(APP_ROOT . '/assets/pwa.js') ?: APP_VERSION ?>" defer></script>
 </body></html>

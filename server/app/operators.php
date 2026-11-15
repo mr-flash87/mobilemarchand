@@ -7,7 +7,15 @@ declare(strict_types=1);
  * et le motif d'expéditeur de ses SMS.
  */
 
-function operators(bool $activeOnly = false): array
+/** Valeur spéciale : « le périmètre du contexte courant » (admin = plateforme, marchand = le sien). */
+const SCOPE_AUTO = 'auto';
+
+function scope_resolve($scope): ?int
+{
+    return $scope === SCOPE_AUTO ? current_scope() : ($scope === null ? null : (int)$scope);
+}
+
+function operators_all(): array
 {
     if (!isset($GLOBALS['__operators'])) {
         try {
@@ -16,8 +24,18 @@ function operators(bool $activeOnly = false): array
             $GLOBALS['__operators'] = [];
         }
     }
-    $all = $GLOBALS['__operators'];
-    return $activeOnly ? array_values(array_filter($all, fn($o) => (int)$o['active'] === 1)) : $all;
+    return $GLOBALS['__operators'];
+}
+
+/** Opérateurs d'un périmètre (null = plateforme, id = marchand autonome). */
+function operators(bool $activeOnly = false, $scope = SCOPE_AUTO): array
+{
+    $scope = scope_resolve($scope);
+    $list = array_filter(operators_all(), function ($o) use ($scope, $activeOnly) {
+        $mid = isset($o['merchant_id']) && $o['merchant_id'] !== null ? (int)$o['merchant_id'] : null;
+        return $mid === $scope && (!$activeOnly || (int)$o['active'] === 1);
+    });
+    return array_values($list);
 }
 
 function operators_reset_cache(): void
@@ -25,9 +43,9 @@ function operators_reset_cache(): void
     unset($GLOBALS['__operators']);
 }
 
-function operator_by_code(?string $code): ?array
+function operator_by_code(?string $code, $scope = SCOPE_AUTO): ?array
 {
-    foreach (operators() as $o) {
+    foreach (operators(false, $scope) as $o) {
         if ($code !== null && strcasecmp($o['code'], $code) === 0) {
             return $o;
         }
@@ -35,9 +53,10 @@ function operator_by_code(?string $code): ?array
     return null;
 }
 
+/** Par identifiant, tous périmètres confondus (vérifier l'appartenance avec operator_in_scope). */
 function operator_by_id($id): ?array
 {
-    foreach (operators() as $o) {
+    foreach (operators_all() as $o) {
         if ((int)$o['id'] === (int)$id) {
             return $o;
         }
@@ -45,16 +64,25 @@ function operator_by_id($id): ?array
     return null;
 }
 
-/** Opérateur par défaut : le premier actif. */
-function operator_default(): ?array
+function operator_in_scope(?array $op, ?int $scope): bool
 {
-    return operators(true)[0] ?? null;
+    if (!$op) {
+        return false;
+    }
+    $mid = $op['merchant_id'] !== null ? (int)$op['merchant_id'] : null;
+    return $mid === $scope;
+}
+
+/** Opérateur par défaut : le premier actif du périmètre. */
+function operator_default($scope = SCOPE_AUTO): ?array
+{
+    return operators(true, $scope)[0] ?? null;
 }
 
 /** Retrouve l'opérateur à partir de l'expéditeur d'un SMS. */
-function operator_for_sender(string $sender): ?array
+function operator_for_sender(string $sender, $scope = SCOPE_AUTO): ?array
 {
-    foreach (operators() as $o) {
+    foreach (operators(false, $scope) as $o) {
         if ($o['sms_sender'] !== null && trim($o['sms_sender']) !== '' && rx_test($o['sms_sender'], $sender)) {
             return $o;
         }
@@ -63,9 +91,9 @@ function operator_for_sender(string $sender): ?array
 }
 
 /** Noms des opérateurs actifs, ex. "Orange Money, Moov Money et Wave". */
-function operators_names(): string
+function operators_names($scope = SCOPE_AUTO): string
 {
-    $names = array_column(operators(true), 'name');
+    $names = array_column(operators(true, $scope), 'name');
     if (!$names) {
         return 'Mobile Money';
     }
@@ -150,14 +178,14 @@ function operator_public(array $op, float $amount): array
     ];
 }
 
-/** Opérateurs à proposer au client pour ce paiement. */
+/** Opérateurs à proposer au client pour ce paiement (ceux du marchand autonome, sinon ceux de la plateforme). */
 function payment_operators(array $payment): array
 {
     $chosen = !empty($payment['operator_id']) ? operator_by_id($payment['operator_id']) : null;
     if ($chosen) {
         return [$chosen];
     }
-    return array_values(array_filter(operators(true), 'operator_ready'));
+    return array_values(array_filter(operators(true, payment_scope($payment)), 'operator_ready'));
 }
 
 /* ---------- Soldes par téléphone ET par opérateur (téléphones double SIM) ---------- */
@@ -190,17 +218,18 @@ function device_set_balance(int $deviceId, ?string $opCode, ?float $balance): vo
 
 /* ---------- Migration : création et remplissage de la table des opérateurs ---------- */
 
-function operators_seed(): void
+function operators_seed(?int $scope = null): void
 {
-    if ((int)q_val('SELECT COUNT(*) FROM operators') > 0) {
+    $params = [];
+    if ((int)q_val('SELECT COUNT(*) FROM operators WHERE ' . scope_sql('merchant_id', $scope, $params), $params) > 0) {
         return;
     }
-    $oldCodes = trim((string)setting('ussd_codes', ''));
+    $oldCodes = $scope === null ? trim((string)setting('ussd_codes', '')) : '';
     if ($oldCodes === '') {
         $oldCodes = 'Transfert | ' . (setting('ussd_template') ?: '*144*10*{number}*{amount}#') . "\nPaiement marchand | *144*2*1*{number}*{amount}#";
     }
     $rows = [
-        ['orange', (string)(setting('operator_name') ?: 'Orange Money'), '#ff7900', (string)setting('merchant_number', ''), $oldCodes, '', 'orange|^OM$', '', 1],
+        ['orange', $scope === null ? (string)(setting('operator_name') ?: 'Orange Money') : 'Orange Money', '#ff7900', $scope === null ? (string)setting('merchant_number', '') : '', $oldCodes, '', 'orange|^OM$', '', $scope === null ? 1 : 0],
         ['moov', 'Moov Money', '#005baa', '', '', '', 'moov|flooz', '', 0],
         ['telecel', 'Telecel Money', '#e30613', '', '', '', 'telecel', '', 0],
         ['wave', 'Wave', '#1dc4ff', '', '', '', 'wave', "Ouvrez l'application Wave et payez le montant exact au numéro indiqué.", 0],
@@ -209,7 +238,8 @@ function operators_seed(): void
         db_insert('operators', [
             'code' => $code, 'name' => $name, 'color' => $color, 'merchant_number' => $num, 'ussd_codes' => $ussd,
             'pay_link' => $link, 'sms_sender' => $sender, 'instructions' => $instr, 'active' => $active,
-            'sort_order' => $i + 1, 'created_at' => now(),
+            'sort_order' => $i + 1, 'created_at' => now(), 'merchant_id' => $scope,
+            'app_package' => $code === 'wave' ? '^com\\.wave\\.' : null,
         ]);
     }
 }

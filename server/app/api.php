@@ -30,7 +30,14 @@ function api_merchant(string $method, array $parts): never
         http_response_code(204);
         exit;
     }
-    $merchant = merchant_from_key(bearer_token());
+    $key = bearer_token();
+    $merchant = merchant_from_key($key);
+    if (!$merchant && $key) {
+        $m = q_one('SELECT status FROM merchants WHERE api_key_hash = ?', [hash('sha256', $key)]);
+        if ($m && ($m['status'] ?? '') === 'pending') {
+            json_error('account_pending', 'Compte marchand en attente de validation par l\'administrateur.', 403);
+        }
+    }
     if (!$merchant) {
         json_error('unauthorized', 'Clé API manquante ou invalide. En-tête attendu : Authorization: Bearer fp_live_...', 401);
     }
@@ -84,7 +91,7 @@ function api_merchant(string $method, array $parts): never
             'name' => $merchant['name'],
             'operators' => array_map(fn($o) => [
                 'code' => $o['code'], 'name' => $o['name'], 'merchant_number' => $o['merchant_number'],
-            ], array_values(array_filter(operators(true), 'operator_ready'))),
+            ], array_values(array_filter(operators(true, merchant_scope($merchant)), 'operator_ready'))),
             'currency' => setting('currency'),
             'limits' => ['min_amount' => (float)setting('min_amount'), 'max_amount' => (float)setting('max_amount')],
             'payment_expiry_minutes' => (int)setting('payment_expiry_minutes'),
@@ -122,22 +129,23 @@ function device_from_token(?string $token): ?array
     return q_one('SELECT * FROM devices WHERE token_hash = ? AND active = 1', [hash('sha256', $token)]);
 }
 
-function device_config(): array
+function device_config(?array $device = null): array
 {
+    $scope = $device && $device['merchant_id'] !== null ? (int)$device['merchant_id'] : null;
     $senders = [];
     foreach (sms_rules() as $r) {
         if (!empty($r['sender'])) {
             $senders[] = $r['sender'];
         }
     }
-    foreach (operators(true) as $o) {
+    foreach (operators(true, $scope) as $o) {
         if (trim((string)$o['sms_sender']) !== '') {
             $senders[] = $o['sms_sender'];
         }
     }
     // Applications dont on lit les notifications (ex. Wave) : motif du nom de paquet -> nom de l'opérateur.
     $apps = [];
-    foreach (operators(true) as $o) {
+    foreach (operators(true, $scope) as $o) {
         if (trim((string)($o['app_package'] ?? '')) !== '') {
             $apps[] = ['package' => $o['app_package'], 'sender' => $o['name']];
         }
@@ -173,7 +181,7 @@ function api_device(string $method, array $parts): never
             'last_seen_at' => now(),
             'app_version' => mb_substr((string)($in['app_version'] ?? ''), 0, 20),
         ], 'id = :id', ['id' => $dev['id']]);
-        json_out(['token' => $token, 'device' => ['id' => (int)$dev['id'], 'name' => $dev['name']], 'config' => device_config()]);
+        json_out(['token' => $token, 'device' => ['id' => (int)$dev['id'], 'name' => $dev['name']], 'config' => device_config($dev)]);
     }
 
     $device = device_from_token(bearer_token());
@@ -194,7 +202,7 @@ function api_device(string $method, array $parts): never
 
     if ($action === 'heartbeat') {
         run_maintenance_throttled();
-        json_out(['ok' => true, 'config' => device_config()]);
+        json_out(['ok' => true, 'config' => device_config($device)]);
     }
 
     if ($action === 'sms') {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require __DIR__ . '/app/bootstrap.php';
 require APP_DIR . '/api.php';
 require APP_DIR . '/admin.php';
+require APP_DIR . '/merchant.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
@@ -29,8 +30,8 @@ try {
                 'name' => app_name() . ' – Espace marchand',
                 'short_name' => app_name(),
                 'description' => 'Suivi des paiements Mobile Money et notifications en temps réel.',
-                'id' => url('admin'),
-                'start_url' => url('admin'),
+                'id' => url(($_GET['area'] ?? '') === 'espace' ? 'espace' : 'admin'),
+                'start_url' => url(($_GET['area'] ?? '') === 'espace' ? 'espace' : 'admin'),
                 'scope' => url('') ,
                 'display' => 'standalone',
                 'orientation' => 'portrait',
@@ -76,6 +77,9 @@ try {
             json_out(run_maintenance());
         case 'admin':
             admin_route($method, array_slice($parts, 1));
+            break;
+        case 'espace':
+            merchant_route($method, array_slice($parts, 1));
             break;
         default:
             http_response_code(404);

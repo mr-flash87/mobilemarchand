@@ -144,20 +144,25 @@ function webpush_send(array $sub, array $message): int
     return $code;
 }
 
-/** Notifie tous les appareils abonnés (administrateurs). Ne bloque jamais le traitement d'un paiement. */
-function push_notify(string $title, string $body, string $path = 'admin', string $tag = ''): int
+/**
+ * Notifie les appareils abonnés d'un périmètre : null = administrateur de la plateforme,
+ * id = marchand autonome. $path est relatif à l'espace (ex. "payments/PAY-…").
+ */
+function push_notify(string $title, string $body, string $path = '', string $tag = '', ?int $scope = null): int
 {
     if (!webpush_supported()) {
         return 0;
     }
     $sent = 0;
     try {
-        $subs = q_all('SELECT * FROM push_subscriptions');
+        $params = [];
+        $subs = q_all('SELECT * FROM push_subscriptions WHERE ' . scope_sql('merchant_id', $scope, $params), $params);
+        $base = $scope === null ? 'admin' : 'espace';
         foreach ($subs as $s) {
             $code = webpush_send($s, [
                 'title' => $title,
                 'body' => $body,
-                'url' => abs_url($path),
+                'url' => abs_url($base . ($path !== '' ? '/' . ltrim($path, '/') : '')),
                 'tag' => $tag ?: 'fp-' . bin2hex(random_bytes(4)),
             ]);
             if ($code === 404 || $code === 410) {

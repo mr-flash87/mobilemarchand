@@ -70,7 +70,7 @@
     <div class="callout warn"><?= icon('alert', 18) ?><div>
       L'iPhone doit avoir Internet au moment où le SMS arrive (pas de renvoi automatique s'il est hors ligne : validez alors le paiement à la main dans « SMS reçus »).
       Seuls les SMS contenant « FCFA » sont envoyés ; ceux qui ne viennent pas d'un opérateur sont ignorés par le site.
-      Pour tester : envoyez-vous un SMS contenant « FCFA » depuis un autre téléphone, il doit apparaître dans <a href="<?= h(url('admin/sms')) ?>">SMS reçus</a> (en « Ignoré », c'est normal).
+      Pour tester : envoyez-vous un SMS contenant « FCFA » depuis un autre téléphone, il doit apparaître dans <a href="<?= h(aurl('sms')) ?>">SMS reçus</a> (en « Ignoré », c'est normal).
     </div></div>
   </details>
 </section>

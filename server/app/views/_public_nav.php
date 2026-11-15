@@ -7,7 +7,7 @@
       <a href="<?= h(url('docs')) ?>">Documentation</a>
     </nav>
     <div class="lp-actions">
-      <a class="btn primary" href="<?= h(url('admin/login')) ?>">Se connecter</a>
+      <a class="btn primary" href="<?= h(url('espace/connexion')) ?>">Se connecter</a>
     </div>
   </div>
 </header>

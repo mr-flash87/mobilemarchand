@@ -37,13 +37,14 @@ function payment_create(array $in, ?array $merchant): array
         }
     }
     $operator = null;
+    $scope = merchant_scope($merchant);
     if (!empty($in['operator'])) {
-        $operator = operator_by_code((string)$in['operator']);
+        $operator = operator_by_code((string)$in['operator'], $scope);
         if (!$operator || !operator_ready($operator)) {
-            $codes = implode(', ', array_column(array_filter(operators(true), 'operator_ready'), 'code'));
+            $codes = implode(', ', array_column(array_filter(operators(true, $scope), 'operator_ready'), 'code'));
             throw new InvalidArgumentException("operator: opérateur inconnu ou inactif. Valeurs possibles : $codes.");
         }
-    } elseif (!array_filter(operators(true), 'operator_ready')) {
+    } elseif (!array_filter(operators(true, $scope), 'operator_ready')) {
         throw new InvalidArgumentException('Aucun opérateur configuré (Admin > Opérateurs : renseignez au moins un numéro marchand).');
     }
     $metadata = $in['metadata'] ?? null;
@@ -80,9 +81,11 @@ function payment_create(array $in, ?array $merchant): array
 function payment_try_late_match(array $payment): void
 {
     $since = ts_plus(-60 * max(1, (int)setting('late_match_minutes')));
+    $params = [$payment['amount'], $since];
+    $scopeSql = scope_sql('merchant_id', payment_scope($payment), $params);
     $rows = q_all(
-        "SELECT * FROM sms_messages WHERE status = 'unmatched' AND kind = 'incoming' AND amount = ? AND created_at >= ? ORDER BY id ASC",
-        [$payment['amount'], $since]
+        "SELECT * FROM sms_messages WHERE status = 'unmatched' AND kind = 'incoming' AND amount = ? AND created_at >= ? AND $scopeSql ORDER BY id ASC",
+        $params
     );
     foreach ($rows as $sms) {
         if (phone_key($sms['phone']) === $payment['payer_phone_key']) {
@@ -163,8 +166,9 @@ function payment_mark_paid(array $payment, ?array $sms, string $how = 'auto'): b
         push_notify(
             '💰 Paiement reçu : ' . fmt_amount($payment['amount'], 'F'),
             'De ' . $payment['payer_phone'] . ($m ? ' · ' . $m : '') . ' · ' . $payment['reference'],
-            'admin/payments/' . $payment['reference'],
-            'pay-' . $payment['reference']
+            'payments/' . $payment['reference'],
+            'pay-' . $payment['reference'],
+            payment_scope($payment)
         );
     }
     return true;
@@ -193,19 +197,23 @@ function payments_expire(): int
 }
 
 /** Cherche le paiement en attente correspondant à un SMS reçu. */
-function payment_match_for(float $amount, ?string $phone): ?array
+function payment_match_for(float $amount, ?string $phone, ?int $scope = null): ?array
 {
     $key = phone_key($phone);
     if ($key !== null) {
+        $params = [$amount, $key, now()];
+        $sc = payments_scope_sql($scope, $params);
         return q_one(
-            "SELECT * FROM payments WHERE status = 'pending' AND amount = ? AND payer_phone_key = ? AND expires_at >= ? ORDER BY id ASC LIMIT 1",
-            [$amount, $key, now()]
+            "SELECT * FROM payments WHERE status = 'pending' AND amount = ? AND payer_phone_key = ? AND expires_at >= ? AND $sc ORDER BY id ASC LIMIT 1",
+            $params
         );
     }
     if (setting('match_amount_only') === '1') {
+        $params = [$amount, now()];
+        $sc = payments_scope_sql($scope, $params);
         $rows = q_all(
-            "SELECT * FROM payments WHERE status = 'pending' AND amount = ? AND expires_at >= ? ORDER BY id ASC LIMIT 2",
-            [$amount, now()]
+            "SELECT * FROM payments WHERE status = 'pending' AND amount = ? AND expires_at >= ? AND $sc ORDER BY id ASC LIMIT 2",
+            $params
         );
         if (count($rows) === 1) {
             return $rows[0];
@@ -218,8 +226,12 @@ function payment_match_for(float $amount, ?string $phone): ?array
  * Enregistre un SMS reçu par un téléphone et tente de le rapprocher d'un paiement.
  * Retourne ['id' => ..., 'status' => ..., 'payment' => reference|null]
  */
-function sms_ingest(?array $device, string $sender, string $body, ?int $receivedAtMs = null, string $source = 'sms'): array
+function sms_ingest(?array $device, string $sender, string $body, ?int $receivedAtMs = null, string $source = 'sms', $scope = 'device'): array
 {
+    // Périmètre : marchand propriétaire du téléphone (null = passerelle de la plateforme).
+    if ($scope === 'device') {
+        $scope = $device && isset($device['merchant_id']) && $device['merchant_id'] !== null ? (int)$device['merchant_id'] : null;
+    }
     $sender = mb_substr(trim($sender), 0, 60);
     $body = trim($body);
     $receivedAt = $receivedAtMs ? gmdate('Y-m-d H:i:s', intdiv($receivedAtMs, 1000)) : now();
@@ -233,6 +245,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
     $parsed = parse_sms($sender, $body);
     $row = [
         'device_id' => $device['id'] ?? null,
+        'merchant_id' => $scope,
         'sender' => $sender,
         'body' => $body,
         'received_at' => $receivedAt,
@@ -243,7 +256,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         'phone' => $parsed['phone'] ?? null,
         'txn_id' => $parsed['txn'] ?? null,
         'balance' => $parsed['balance'] ?? null,
-        'operator' => $parsed['operator'] ?? (operator_for_sender($sender)['code'] ?? null),
+        'operator' => $parsed['operator'] ?? (operator_for_sender($sender, $scope)['code'] ?? null),
         'source' => $source === 'notification' ? 'notification' : 'sms',
         'status' => 'ignored',
         'note' => null,
@@ -267,7 +280,9 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
 
     // Anti-doublon : même ID de transaction opérateur déjà traité.
     if ($parsed['txn']) {
-        $dup = q_one("SELECT id FROM sms_messages WHERE txn_id = ? AND kind = 'incoming' AND status IN ('matched','unmatched','review')", [$parsed['txn']]);
+        $dp = [$parsed['txn']];
+        $dsc = scope_sql('merchant_id', $scope, $dp);
+        $dup = q_one("SELECT id FROM sms_messages WHERE txn_id = ? AND kind = 'incoming' AND status IN ('matched','unmatched','review') AND $dsc", $dp);
         if ($dup) {
             $row['status'] = 'duplicate';
             $row['note'] = 'ID de transaction déjà reçu (SMS #' . $dup['id'] . ')';
@@ -286,7 +301,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         }
     }
 
-    $payment = payment_match_for((float)$parsed['amount'], $parsed['phone']);
+    $payment = payment_match_for((float)$parsed['amount'], $parsed['phone'], $scope);
 
     if ($suspect !== null) {
         $row['status'] = 'review';
@@ -294,7 +309,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         $row['payment_id'] = $payment['id'] ?? null; // candidat, pas encore validé
         $id = db_insert('sms_messages', $row);
         log_line("sms #$id en revue: $suspect");
-        push_notify('🔎 SMS à vérifier : ' . fmt_amount($parsed['amount'], 'F'), $suspect, 'admin/sms?status=review', 'sms-' . $id);
+        push_notify('🔎 SMS à vérifier : ' . fmt_amount($parsed['amount'], 'F'), $suspect, 'sms?status=review', 'sms-' . $id, $scope);
         return ['id' => $id, 'status' => 'review', 'payment' => null];
     }
 
@@ -311,9 +326,10 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
     }
     push_notify(
         '⚠️ Argent reçu sans paiement : ' . fmt_amount($parsed['amount'], 'F'),
-        'De ' . ($parsed['phone'] ?: 'numéro inconnu') . '. Rapprochez-le dans l\'admin.',
-        'admin/sms?status=unmatched',
-        'sms-' . $id
+        'De ' . ($parsed['phone'] ?: 'numéro inconnu') . '. Rapprochez-le dans votre espace.',
+        'sms?status=unmatched',
+        'sms-' . $id,
+        $scope
     );
     return ['id' => $id, 'status' => 'unmatched', 'payment' => null];
 }

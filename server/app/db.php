@@ -199,7 +199,7 @@ function db_schema(string $driver): array
     )$engine";
     $t[] = "CREATE TABLE IF NOT EXISTS operators (
         id $pk,
-        code VARCHAR(30) NOT NULL UNIQUE,
+        code VARCHAR(30) NOT NULL,
         name VARCHAR(100) NOT NULL,
         color VARCHAR(10) NULL,
         merchant_number VARCHAR(40) NULL,
@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -252,11 +252,8 @@ function db_migrate(): void
         db_add_column('payments', 'paid_operator', 'VARCHAR(30) NULL', 'TEXT NULL');
         db_add_column('sms_messages', 'operator', 'VARCHAR(30) NULL', 'TEXT NULL');
         db_add_column('devices', 'balances', 'TEXT NULL', 'TEXT NULL');
-        operators_reset_cache();
-        operators_seed();
-        operators_reset_cache();
-        // Ancien solde unique -> solde de l'opérateur principal.
-        $first = operators()[0]['code'] ?? 'orange';
+        // Ancien solde unique -> solde de l'opérateur principal (les opérateurs sont créés plus bas).
+        $first = 'orange';
         foreach (q_all('SELECT id, last_balance FROM devices WHERE last_balance IS NOT NULL') as $d) {
             device_set_balance((int)$d['id'], $first, (float)$d['last_balance']);
         }
@@ -277,5 +274,53 @@ function db_migrate(): void
     if ($v < 6) {
         db_add_column('devices', 'kind', "VARCHAR(20) NOT NULL DEFAULT 'android'", "TEXT NOT NULL DEFAULT 'android'");
     }
+    if ($v < 7) {
+        // Espace marchand : comptes autonomes avec leurs propres opérateurs et téléphones.
+        db_add_column('merchants', 'password_hash', 'VARCHAR(255) NULL', 'TEXT NULL');
+        db_add_column('merchants', 'kind', "VARCHAR(20) NOT NULL DEFAULT 'internal'", "TEXT NOT NULL DEFAULT 'internal'");
+        db_add_column('merchants', 'status', "VARCHAR(20) NOT NULL DEFAULT 'active'", "TEXT NOT NULL DEFAULT 'active'");
+        db_add_column('operators', 'merchant_id', 'INT UNSIGNED NULL', 'INTEGER NULL');
+        db_add_column('devices', 'merchant_id', 'INT UNSIGNED NULL', 'INTEGER NULL');
+        db_add_column('sms_messages', 'merchant_id', 'INT UNSIGNED NULL', 'INTEGER NULL');
+        db_add_column('push_subscriptions', 'merchant_id', 'INT UNSIGNED NULL', 'INTEGER NULL');
+        operators_drop_code_unique();
+        try {
+            db()->exec('CREATE INDEX idx_op_scope ON operators (merchant_id, code)');
+        } catch (PDOException $e) {
+        }
+        operators_reset_cache();
+    }
+    // Opérateurs par défaut de la plateforme (une fois toutes les colonnes créées).
+    operators_reset_cache();
+    operators_seed(null);
+    operators_reset_cache();
     setting_set('schema_version', (string)SCHEMA_VERSION);
+}
+
+/** Le code d'opérateur n'est plus unique globalement (chaque marchand peut avoir son « orange »). */
+function operators_drop_code_unique(): void
+{
+    $pdo = db();
+    if (db_driver() === 'sqlite') {
+        $sql = (string)$pdo->query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'operators'")->fetchColumn();
+        if (!preg_match('/code\s+VARCHAR\(30\)\s+NOT NULL\s+UNIQUE/i', $sql)) {
+            return;
+        }
+        $new = preg_replace('/code\s+VARCHAR\(30\)\s+NOT NULL\s+UNIQUE/i', 'code VARCHAR(30) NOT NULL', $sql);
+        $new = preg_replace('/CREATE TABLE\s+(IF NOT EXISTS\s+)?"?operators"?/i', 'CREATE TABLE operators_new', $new, 1);
+        $pdo->exec('PRAGMA foreign_keys=OFF');
+        $pdo->beginTransaction();
+        $pdo->exec($new);
+        $pdo->exec('INSERT INTO operators_new SELECT * FROM operators');
+        $pdo->exec('DROP TABLE operators');
+        $pdo->exec('ALTER TABLE operators_new RENAME TO operators');
+        $pdo->commit();
+        return;
+    }
+    foreach ($pdo->query("SHOW INDEX FROM operators WHERE Column_name = 'code' AND Non_unique = 0")->fetchAll() as $ix) {
+        try {
+            $pdo->exec('ALTER TABLE operators DROP INDEX `' . str_replace('`', '', $ix['Key_name']) . '`');
+        } catch (PDOException $e) {
+        }
+    }
 }

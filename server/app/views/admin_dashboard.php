@@ -24,8 +24,8 @@ $todayKey = array_key_last($days);
     <p class="muted">Voici l'activité de votre passerelle <?= h(operators_names()) ?>.</p>
   </div>
   <div class="row">
-    <a class="btn" href="<?= h(url('admin/simulate')) ?>"><?= icon('flask', 16) ?> Simuler un SMS</a>
-    <a class="btn primary" href="<?= h(url('admin/payments')) ?>#new"><?= icon('plus', 16) ?> Nouveau paiement</a>
+    <a class="btn" href="<?= h(aurl('simulate')) ?>"><?= icon('flask', 16) ?> Simuler un SMS</a>
+    <a class="btn primary" href="<?= h(aurl('payments')) ?>#new"><?= icon('plus', 16) ?> Nouveau paiement</a>
   </div>
 </div>
 
@@ -44,7 +44,7 @@ $todayKey = array_key_last($days);
       <li class="<?= $s['done'] ? 'done' : '' ?>">
         <span class="tick"><?= $s['done'] ? icon('check', 14) : '' ?></span>
         <?php if ($s['done']): ?><span><?= h($s['label']) ?></span>
-        <?php else: ?><a href="<?= h(url($s['href'])) ?>"><?= h($s['label']) ?> <?= icon('arrow', 14) ?></a><?php endif; ?>
+        <?php else: ?><a href="<?= h(aurl($s['href'])) ?>"><?= h($s['label']) ?> <?= icon('arrow', 14) ?></a><?php endif; ?>
       </li>
     <?php endforeach; ?>
   </ol>
@@ -58,7 +58,7 @@ $todayKey = array_key_last($days);
     <span class="small muted" data-push-status></span>
   </div>
   <button class="btn primary" type="button" data-push-enable hidden>Activer les notifications</button>
-  <a class="btn" href="<?= h(url('admin/settings')) ?>#app">Comment faire ?</a>
+  <a class="btn" href="<?= h(aurl('settings')) ?>#app">Comment faire ?</a>
 </section>
 
 <div class="kpis">
@@ -74,12 +74,12 @@ $todayKey = array_key_last($days);
       <?php endif; ?>
     </div>
   </section>
-  <a class="tile" href="<?= h(url('admin/payments?status=pending')) ?>">
+  <a class="tile" href="<?= h(aurl('payments?status=pending')) ?>">
     <span class="tile-ic amber"><?= icon('clock') ?></span>
     <span class="tile-v"><?= (int)$stats['pending'] ?></span>
     <span class="tile-l">Paiements en attente</span>
   </a>
-  <a class="tile" href="<?= h(url('admin/sms?status=unmatched')) ?>">
+  <a class="tile" href="<?= h(aurl('sms?status=unmatched')) ?>">
     <span class="tile-ic <?= $stats['to_review'] ? 'red' : 'green' ?>"><?= icon($stats['to_review'] ? 'alert' : 'check') ?></span>
     <span class="tile-v"><?= (int)$stats['to_review'] ?></span>
     <span class="tile-l">SMS à traiter</span>
@@ -125,12 +125,12 @@ $todayKey = array_key_last($days);
   </section>
 
   <section class="card">
-    <div class="row"><h2 style="margin:0">Passerelle</h2><span class="spacer"></span><a class="link-sm" href="<?= h(url('admin/devices')) ?>">Gérer <?= icon('arrow', 14) ?></a></div>
+    <div class="row"><h2 style="margin:0">Passerelle</h2><span class="spacer"></span><a class="link-sm" href="<?= h(aurl('devices')) ?>">Gérer <?= icon('arrow', 14) ?></a></div>
     <?php if (!$devices): ?>
       <div class="empty">
         <span class="tile-ic blue"><?= icon('phone') ?></span>
         <p>Aucun téléphone associé.</p>
-        <a class="btn sm primary" href="<?= h(url('admin/devices')) ?>">Ajouter un téléphone</a>
+        <a class="btn sm primary" href="<?= h(aurl('devices')) ?>">Ajouter un téléphone</a>
       </div>
     <?php endif; ?>
     <?php foreach ($devices as $d): $on = device_online($d); ?>
@@ -153,7 +153,7 @@ $todayKey = array_key_last($days);
 
     <div class="api-card">
       <div class="row"><?= icon('book') ?><strong>Intégrer l'API</strong></div>
-      <p class="small">Donnez ce lien aux sites qui veulent encaisser via votre plateforme :</p>
+      <p class="small"><?= is_admin_ctx() ? 'Donnez ce lien aux sites qui veulent encaisser via votre plateforme :' : 'Votre développeur trouvera ici tout ce qu\'il faut pour connecter votre site :' ?></p>
       <div class="copy-line"><code id="docs-url"><?= h(abs_url('docs')) ?></code>
         <button class="btn sm" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('docs-url').textContent);this.textContent='Copié ✓'">Copier</button></div>
       <a class="btn sm" href="<?= h(url('docs')) ?>" target="_blank">Ouvrir la documentation <?= icon('arrow', 14) ?></a>
@@ -163,20 +163,20 @@ $todayKey = array_key_last($days);
 
 <div class="dash-grid even">
   <section class="card">
-    <div class="row"><h2 style="margin:0">Derniers paiements</h2><span class="spacer"></span><a class="link-sm" href="<?= h(url('admin/payments')) ?>">Tout voir <?= icon('arrow', 14) ?></a></div>
+    <div class="row"><h2 style="margin:0">Derniers paiements</h2><span class="spacer"></span><a class="link-sm" href="<?= h(aurl('payments')) ?>">Tout voir <?= icon('arrow', 14) ?></a></div>
     <div class="list">
       <?php foreach ($recent as $p): ?>
-        <a class="list-row" href="<?= h(url('admin/payments/' . $p['reference'])) ?>">
+        <a class="list-row" href="<?= h(aurl('payments/' . $p['reference'])) ?>">
           <span class="avatar sm s-<?= h($p['status']) ?>"><?= icon($p['status'] === 'paid' ? 'check' : 'clock', 14) ?></span>
           <span class="list-main"><strong><?= h($p['payer_phone']) ?></strong><span class="small muted"><?= h($p['merchant_name'] ?? 'Sans marchand') ?> · <?= h(fmt_dt($p['created_at'])) ?></span></span>
           <span class="list-end"><strong><?= h(fmt_amount($p['amount'])) ?></strong><?= badge($p['status']) ?></span>
         </a>
       <?php endforeach; ?>
-      <?php if (!$recent): ?><div class="empty"><p>Aucun paiement pour l'instant.</p><a class="btn sm" href="<?= h(url('admin/simulate')) ?>">Faire un test avec le simulateur</a></div><?php endif; ?>
+      <?php if (!$recent): ?><div class="empty"><p>Aucun paiement pour l'instant.</p><a class="btn sm" href="<?= h(aurl('simulate')) ?>">Faire un test avec le simulateur</a></div><?php endif; ?>
     </div>
   </section>
   <section class="card">
-    <div class="row"><h2 style="margin:0">Derniers SMS</h2><span class="spacer"></span><a class="link-sm" href="<?= h(url('admin/sms')) ?>">Tout voir <?= icon('arrow', 14) ?></a></div>
+    <div class="row"><h2 style="margin:0">Derniers SMS</h2><span class="spacer"></span><a class="link-sm" href="<?= h(aurl('sms')) ?>">Tout voir <?= icon('arrow', 14) ?></a></div>
     <div class="list">
       <?php foreach ($sms as $s): ?>
         <div class="list-row">

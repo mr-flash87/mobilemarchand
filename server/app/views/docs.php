@@ -255,7 +255,7 @@ $sections = [
   </div>
   <footer class="lp-foot"><div class="lp-wrap lp-foot-in">
     <a class="lp-logo" href="<?= h(url('')) ?>"><span class="brand-mark"><?= icon('wallet', 16) ?></span><?= $n ?></a>
-    <nav><a href="<?= h(url('')) ?>">Accueil</a><a href="<?= h(url('admin/login')) ?>">Espace marchand</a></nav>
+    <nav><a href="<?= h(url('')) ?>">Accueil</a><a href="<?= h(url('espace/connexion')) ?>">Espace marchand</a></nav>
     <span class="muted small">© <?= date('Y') ?> <?= $n ?></span>
   </div></footer>
 </div>
