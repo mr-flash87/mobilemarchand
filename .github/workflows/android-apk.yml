@@ -20,6 +20,18 @@ jobs:
           distribution: temurin
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
+      - name: Clé de signature
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$KS_B64" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "ANDROID_KEYSTORE_PASSWORD=flashpay-release-2026" >> "$GITHUB_ENV"
+            echo "Signature : clé fixe de l'application"
+          else
+            echo "::warning::Secret ANDROID_KEYSTORE_B64 absent : APK signé avec une clé temporaire (désinstallation nécessaire à chaque mise à jour)."
+          fi
       - name: Compiler l'APK
         run: |
           chmod +x gradlew

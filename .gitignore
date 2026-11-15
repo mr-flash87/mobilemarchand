@@ -6,3 +6,5 @@ android/app/build/
 android/local.properties
 *.apk
 *.zip
+*.jks
+ANDROID_KEYSTORE_B64.txt
