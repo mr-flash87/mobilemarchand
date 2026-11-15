@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -273,6 +273,9 @@ function db_migrate(): void
         // Wave prévient surtout par notification de son application.
         q("UPDATE operators SET app_package = ? WHERE code = 'wave' AND (app_package IS NULL OR app_package = '')", ['^com\\.wave\\.']);
         operators_reset_cache();
+    }
+    if ($v < 6) {
+        db_add_column('devices', 'kind', "VARCHAR(20) NOT NULL DEFAULT 'android'", "TEXT NOT NULL DEFAULT 'android'");
     }
     setting_set('schema_version', (string)SCHEMA_VERSION);
 }

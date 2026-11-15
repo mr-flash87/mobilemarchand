@@ -261,6 +261,9 @@ function badge(string $s): string
 
 function device_online(array $d): bool
 {
+    if (($d['kind'] ?? 'android') === 'ios') {
+        return (int)$d['active'] === 1 && !empty($d['token_hash']);
+    }
     return $d['last_seen_at'] && strtotime($d['last_seen_at'] . ' UTC') > time() - 600;
 }
 

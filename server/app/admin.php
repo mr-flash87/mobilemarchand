@@ -358,9 +358,31 @@ function admin_devices(string $method, array $p): void
             flash("Téléphone ajouté. Code d'association : $code (valable 30 min).");
             redirect('admin/devices');
         }
+        if ($a === 'create_ios') {
+            $token = 'dev_' . random_token(32);
+            db_insert('devices', [
+                'name' => mb_substr(trim((string)($_POST['name'] ?? '')) ?: 'iPhone', 0, 190),
+                'sim_number' => trim((string)($_POST['sim_number'] ?? '')) ?: null,
+                'token_hash' => hash('sha256', $token),
+                'kind' => 'ios',
+                'active' => 1,
+                'created_at' => now(),
+            ]);
+            start_session();
+            $_SESSION['ios_token'] = $token;
+            flash('iPhone ajouté. Suivez le guide ci-dessous pour créer l\'automatisation dans Raccourcis.');
+            redirect('admin/devices#ios-guide');
+        }
         $d = q_one('SELECT * FROM devices WHERE id = ?', [(int)($_POST['id'] ?? 0)]);
         if ($d) {
-            if ($a === 'code') {
+            if ($a === 'ios_token' && ($d['kind'] ?? '') === 'ios') {
+                $token = 'dev_' . random_token(32);
+                db_update('devices', ['token_hash' => hash('sha256', $token)], 'id = :id', ['id' => $d['id']]);
+                start_session();
+                $_SESSION['ios_token'] = $token;
+                flash('Nouvelle clé générée : remplacez-la dans votre automatisation Raccourcis (l\'ancienne ne marche plus).');
+                redirect('admin/devices#ios-guide');
+            } elseif ($a === 'code') {
                 $code = (string)random_int(100000, 999999);
                 db_update('devices', ['pair_code' => $code, 'pair_expires_at' => ts_plus(1800)], 'id = :id', ['id' => $d['id']]);
                 flash("Nouveau code d'association : $code (valable 30 min). L'ancien téléphone reste actif jusqu'à la nouvelle association.");
@@ -380,7 +402,10 @@ function admin_devices(string $method, array $p): void
         redirect('admin/devices');
     }
     $rows = q_all('SELECT d.*, (SELECT COUNT(*) FROM sms_messages s WHERE s.device_id = d.id) AS sms_count FROM devices d ORDER BY d.active DESC, d.id');
-    admin_page('admin_devices', 'Téléphones passerelle', compact('rows'));
+    start_session();
+    $iosToken = $_SESSION['ios_token'] ?? null;
+    unset($_SESSION['ios_token']);
+    admin_page('admin_devices', 'Téléphones passerelle', compact('rows', 'iosToken'));
 }
 
 function admin_settings(string $method): void

@@ -458,3 +458,12 @@ html{scroll-behavior:smooth}
 .ussd-choice{display:flex;gap:10px;align-items:center;font-weight:400;margin:4px 0;padding:8px 10px;border-radius:10px;border:1px solid var(--line);background:var(--card);cursor:pointer}
 .ussd-choice:has(input:checked){border-color:var(--op,#0b5fff);box-shadow:0 0 0 3px color-mix(in srgb,var(--op,#0b5fff) 15%,transparent)}
 .ussd-choice code{overflow-wrap:anywhere}
+.ios-card{border-left:4px solid var(--brand)}
+.ios-card .tile-ic{margin:0}
+.ios-steps{margin-top:14px}
+.ios-steps summary{cursor:pointer;font-weight:600;color:var(--brand);margin-bottom:10px}
+.ios-steps ul{margin:6px 0 0;padding-left:18px}
+.ios-steps li{margin-bottom:6px}
+.steps ul{list-style:disc}
+.steps ul li{counter-increment:none;padding:0;margin-bottom:4px}
+.steps ul li::before{content:none;display:none}

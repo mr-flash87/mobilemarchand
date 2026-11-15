@@ -199,6 +199,14 @@ function api_device(string $method, array $parts): never
 
     if ($action === 'sms') {
         $messages = $in['messages'] ?? null;
+        if ($messages === null && isset($in['body'])) {
+            // Format simple (Raccourcis iPhone) : { "sender": "...", "body": "..." }
+            $messages = [[
+                'sender' => trim((string)($in['sender'] ?? '')) ?: (operator_by_code((string)($in['operator'] ?? ''))['name'] ?? 'Mobile Money'),
+                'body' => (string)$in['body'],
+                'source' => 'sms',
+            ]];
+        }
         if (!is_array($messages) || count($messages) === 0) {
             json_error('invalid_request', 'messages[] attendu.', 422);
         }
