@@ -12,6 +12,8 @@ import java.util.regex.Pattern
 
 data class QueuedSms(val id: Long, val sender: String, val body: String, val timestamp: Long)
 
+data class LogEntry(val timestamp: Long, val line: String)
+
 /** Réglages + file d'attente locale des SMS à envoyer (survit aux redémarrages et coupures réseau). */
 class Store private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, "gateway.db", null, 1) {
@@ -115,6 +117,24 @@ class Store private constructor(context: Context) :
         }
         return sb.toString()
     }
+
+    fun recentEntries(limit: Int = 40): List<LogEntry> {
+        val out = mutableListOf<LogEntry>()
+        readableDatabase.rawQuery("SELECT ts, line FROM log ORDER BY id DESC LIMIT $limit", null).use { c ->
+            while (c.moveToNext()) out += LogEntry(c.getLong(0), c.getString(1))
+        }
+        return out
+    }
+
+    // ---- Compteurs du jour (remis à zéro chaque jour) ----
+    private fun todayKey(): String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
+
+    fun bumpToday(name: String, by: Int = 1) {
+        val key = "stat_${name}_${todayKey()}"
+        prefs.edit().putInt(key, prefs.getInt(key, 0) + by).apply()
+    }
+
+    fun today(name: String): Int = prefs.getInt("stat_${name}_${todayKey()}", 0)
 
     companion object {
         val DEFAULT_SENDERS = listOf("orange|^OM$", "moov|flooz")

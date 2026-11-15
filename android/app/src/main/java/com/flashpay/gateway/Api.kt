@@ -14,7 +14,7 @@ class ApiException(val httpCode: Int, message: String) : IOException(message)
 
 /** Appels HTTP vers le serveur (bloquants : à appeler hors du thread principal). */
 object Api {
-    private const val VERSION = "1.0.0"
+    private val VERSION = BuildConfig.VERSION_NAME
 
     private fun post(url: String, token: String?, body: JSONObject): JSONObject {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -81,6 +81,8 @@ object Api {
             for (i in 0 until results.length()) {
                 val r = results.getJSONObject(i)
                 val status = r.optString("status")
+                if (status != "already_received") store.bumpToday("sent")
+                if (status == "matched") store.bumpToday("matched")
                 val payment = r.optString("payment").takeIf { it.isNotEmpty() && it != "null" }
                 store.log(
                     when (status) {
