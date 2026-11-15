@@ -138,7 +138,8 @@ function payment_public(array $p, bool $full = true): array
         // Page de paiement publique : on ne révèle pas le numéro, seulement s'il est déjà connu (masqué).
         unset($out['payer_phone']);
         $out['payer_phone_set'] = !empty($p['payer_phone_key']);
-        $out['payer_phone_masked'] = $p['payer_phone'] ? substr($p['payer_phone'], 0, -6) . '••••' . substr($p['payer_phone'], -2) : null;
+        $local = $p['payer_phone'] ? substr(preg_replace('/\D+/', '', $p['payer_phone']), -8) : '';
+        $out['payer_phone_masked'] = $local !== '' ? substr($local, 0, 2) . '••••' . substr($local, -2) : null;
         $out['return_url'] = $p['status'] === 'paid' ? $p['return_url'] : null;
     }
     return $out;
