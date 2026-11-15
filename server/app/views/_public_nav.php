@@ -1,11 +1,13 @@
-<header class="topbar">
-  <div class="wrap">
-    <a class="logo" href="<?= h(url('')) ?>"><?= h(app_name()) ?><span>.</span></a>
-    <nav class="nav">
-      <a href="<?= h(url('')) ?>">Accueil</a>
-      <a href="<?= h(url('docs')) ?>">Documentation API</a>
+<header class="lp-nav">
+  <div class="lp-wrap lp-nav-in">
+    <a class="lp-logo" href="<?= h(url('')) ?>"><span class="brand-mark"><?= icon('wallet', 18) ?></span><?= h(app_name()) ?></a>
+    <nav class="lp-links">
+      <a href="<?= h(url('')) ?>#fonctionnement">Fonctionnement</a>
+      <a href="<?= h(url('')) ?>#securite">Sécurité</a>
+      <a href="<?= h(url('docs')) ?>">Documentation</a>
     </nav>
-    <span class="spacer"></span>
-    <a class="btn sm" href="<?= h(url('admin')) ?>">Espace admin</a>
+    <div class="lp-actions">
+      <a class="btn primary" href="<?= h(url('admin/login')) ?>">Se connecter</a>
+    </div>
   </div>
 </header>
