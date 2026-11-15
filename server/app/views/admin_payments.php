@@ -13,7 +13,7 @@
       <button class="btn">Filtrer</button>
     </div>
   </form>
-  <form class="card" method="post" action="<?= h(url('admin/payments/new')) ?>">
+  <form class="card" id="new" method="post" action="<?= h(url('admin/payments/new')) ?>">
     <?= csrf_field() ?>
     <h2>Créer un lien de paiement</h2>
     <div class="row">

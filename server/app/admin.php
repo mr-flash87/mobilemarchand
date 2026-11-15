@@ -99,28 +99,53 @@ function admin_route(string $method, array $p): void
 
 function admin_dashboard(): void
 {
-    $today = gmdate('Y-m-d 00:00:00');
+    // Jours calculés dans le fuseau horaire de la plateforme, requêtes en UTC.
+    $tz = new DateTimeZone((string)setting('timezone', 'Africa/Ouagadougou'));
+    $localMidnight = new DateTime('today', $tz);
+    $toUtc = fn(DateTime $d) => (clone $d)->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    $today = $toUtc($localMidnight);
+    $yesterday = $toUtc((clone $localMidnight)->modify('-1 day'));
+    $weekStart = (clone $localMidnight)->modify('-6 days');
+
     $stats = [
         'paid_today' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND paid_at >= ?", [$today]),
         'count_today' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'paid' AND paid_at >= ?", [$today]),
+        'paid_yesterday' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid' AND paid_at >= ? AND paid_at < ?", [$yesterday, $today]),
         'pending' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'pending'"),
         'to_review' => (int)q_val("SELECT COUNT(*) FROM sms_messages WHERE status IN ('unmatched','review')"),
         'paid_total' => (float)q_val("SELECT COALESCE(SUM(amount),0) FROM payments WHERE status = 'paid'"),
+        'count_total' => (int)q_val("SELECT COUNT(*) FROM payments WHERE status = 'paid'"),
     ];
+
+    // Encaissements des 7 derniers jours (un point par jour, y compris les jours à 0).
+    $days = [];
+    for ($i = 0; $i < 7; $i++) {
+        $d = (clone $weekStart)->modify("+$i days");
+        $days[$d->format('Y-m-d')] = ['label' => $d->format('d/m'), 'dow' => ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'][(int)$d->format('w')], 'amount' => 0.0, 'count' => 0];
+    }
+    foreach (q_all("SELECT amount, paid_at FROM payments WHERE status = 'paid' AND paid_at >= ?", [$toUtc($weekStart)]) as $r) {
+        $k = (new DateTime($r['paid_at'], new DateTimeZone('UTC')))->setTimezone($tz)->format('Y-m-d');
+        if (isset($days[$k])) {
+            $days[$k]['amount'] += (float)$r['amount'];
+            $days[$k]['count']++;
+        }
+    }
+    $closed = q_one("SELECT SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END) AS ok, COUNT(*) AS n FROM payments WHERE status IN ('paid','expired','cancelled') AND created_at >= ?", [$toUtc($weekStart)]);
+    $stats['success_rate'] = $closed && (int)$closed['n'] > 0 ? round(100 * (int)$closed['ok'] / (int)$closed['n']) : null;
+    $stats['week_total'] = array_sum(array_column($days, 'amount'));
+
     $devices = q_all('SELECT * FROM devices WHERE active = 1 ORDER BY id');
-    $recent = q_all('SELECT p.*, m.name AS merchant_name FROM payments p LEFT JOIN merchants m ON m.id = p.merchant_id ORDER BY p.id DESC LIMIT 10');
-    $sms = q_all('SELECT * FROM sms_messages ORDER BY id DESC LIMIT 8');
-    $warnings = [];
-    if ((string)setting('merchant_number') === '') {
-        $warnings[] = 'Configurez votre numéro marchand dans Réglages.';
-    }
-    if (!$devices) {
-        $warnings[] = 'Aucun téléphone associé : ajoutez-en un dans Téléphones.';
-    }
-    if (!q_val('SELECT COUNT(*) FROM merchants')) {
-        $warnings[] = 'Créez au moins un marchand (vous-même) pour obtenir une clé API.';
-    }
-    admin_page('admin_dashboard', 'Tableau de bord', compact('stats', 'devices', 'recent', 'sms', 'warnings'));
+    $recent = q_all('SELECT p.*, m.name AS merchant_name FROM payments p LEFT JOIN merchants m ON m.id = p.merchant_id ORDER BY p.id DESC LIMIT 8');
+    $sms = q_all('SELECT * FROM sms_messages ORDER BY id DESC LIMIT 6');
+
+    // Liste de mise en route.
+    $setup = [
+        ['done' => (string)setting('merchant_number') !== '', 'label' => 'Renseigner votre numéro marchand', 'href' => 'admin/settings'],
+        ['done' => (bool)q_val('SELECT COUNT(*) FROM merchants'), 'label' => 'Créer un marchand et sa clé API', 'href' => 'admin/merchants'],
+        ['done' => (bool)q_val('SELECT COUNT(*) FROM devices WHERE token_hash IS NOT NULL AND active = 1'), 'label' => 'Associer le téléphone passerelle', 'href' => 'admin/devices'],
+        ['done' => $stats['count_total'] > 0, 'label' => 'Recevoir un premier paiement (ou le simuler)', 'href' => 'admin/simulate'],
+    ];
+    admin_page('admin_dashboard', 'Tableau de bord', compact('stats', 'days', 'devices', 'recent', 'sms', 'setup'));
 }
 
 function admin_payments(string $method, array $p): void
