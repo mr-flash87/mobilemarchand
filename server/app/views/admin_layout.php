@@ -4,6 +4,7 @@ $nav = [
     'payments' => ['Paiements', 'card'],
     'sms' => ['SMS reçus', 'sms'],
     'merchants' => ['Marchands & API', 'store'],
+    'operators' => ['Opérateurs', 'wallet'],
     'devices' => ['Téléphones', 'phone'],
     'simulate' => ['Simulateur', 'flask'],
     'settings' => ['Réglages', 'gear'],

@@ -15,44 +15,62 @@ function default_sms_rules(): array
 {
     $amount = '(\d[\d\s.,]*)\s*(?:F\s?CFA|FCFA|XOF|F)\b';
     $txn = '(?:ID\s*(?:de\s*)?(?:la\s*)?trans(?:action)?|Trans(?:action)?\s*(?:ID|N°|No)?|R[ée]f(?:[ée]rence)?|Txn\s*ID|ID)\s*[:.#]?\s*([A-Z0-9][A-Z0-9.\-]{5,})';
-    $balance = 'solde(?:\s+(?:actuel|disponible|est|de|du|compte|OM|Orange\s*Money|Moov\s*Money))*\s*(?:est\s*)?(?:de\s*)?:?\s*(\d[\d\s.,]*)\s*(?:F\s?CFA|FCFA|XOF|F)';
-    $phone = '(?:du|de|from|par|exp[ée]diteur|num[ée]ro)\s*:?\s*(?:le\s*)?(?:num[ée]ro\s*)?(\+?\d[\d ]{6,16}\d)(?![\d ]*(?:F\b|FCFA|F\s?CFA|XOF))';
+    $balance = 'solde(?:\s+(?:actuel|disponible|est|de|du|compte|OM|Orange\s*Money|Moov\s*Money|Telecel\s*Money|Wave))*\s*(?:est\s*)?(?:de\s*)?:?\s*(\d[\d\s.,]*)\s*(?:F\s?CFA|FCFA|XOF|F)';
+    // "du 70123456", "de 70 12 34 56", ou "Prénom Nom (70123456)" (format Wave)
+    $phone = '(?:(?:du|de|from|par|exp[ée]diteur|num[ée]ro)\s*:?\s*(?:le\s*)?(?:num[ée]ro\s*)?|\()(\+?\d[\d ]{6,16}\d)(?![\d ]*(?:F\b|FCFA|F\s?CFA|XOF))';
+    $incomingAmount = '(?:re[çc]u|recu|received|cr[ée]dit[ée]?|transfert|paiement|montant)\D{0,60}?' . $amount;
 
-    return [
-        [
-            'name' => 'Orange Money - argent reçu',
-            'kind' => 'incoming',
-            'sender' => 'orange|^OM$',
-            'require' => 're[çc]u|recu|received|cr[ée]dit',
-            'exclude' => 'vous avez (envoy|pay|retir)|a [ée]t[ée] d[ée]bit',
-            'amount' => '(?:re[çc]u|recu|received|cr[ée]dit[ée]?|transfert|paiement|montant)\D{0,60}?' . $amount,
-            'phone' => $phone,
-            'txn' => $txn,
-            'balance' => $balance,
-        ],
-        [
-            'name' => 'Moov Money - argent reçu',
-            'kind' => 'incoming',
-            'sender' => 'moov|flooz',
-            'require' => 're[çc]u|recu|received|cr[ée]dit',
-            'exclude' => 'vous avez (envoy|pay|retir)|a [ée]t[ée] d[ée]bit',
-            'amount' => '(?:re[çc]u|recu|received|cr[ée]dit[ée]?|transfert|paiement|montant)\D{0,60}?' . $amount,
-            'phone' => $phone,
-            'txn' => $txn,
-            'balance' => $balance,
-        ],
-        [
-            'name' => 'Argent sorti (suivi du solde)',
-            'kind' => 'outgoing',
-            'sender' => 'orange|^OM$|moov|flooz',
-            'require' => 'envoy|transf[ée]r[ée]|retrait|pay[ée]|d[ée]bit',
-            'exclude' => '',
-            'amount' => $amount,
-            'phone' => '',
-            'txn' => $txn,
-            'balance' => $balance,
-        ],
+    $ops = [
+        ['orange', 'Orange Money', 'orange|^OM$'],
+        ['moov', 'Moov Money', 'moov|flooz'],
+        ['telecel', 'Telecel Money', 'telecel'],
+        ['wave', 'Wave', 'wave'],
     ];
+    $rules = [];
+    foreach ($ops as [$code, $name, $sender]) {
+        $rules[] = [
+            'name' => "$name - argent reçu",
+            'operator' => $code,
+            'kind' => 'incoming',
+            'sender' => $sender,
+            'require' => 're[çc]u|recu|received|cr[ée]dit',
+            'exclude' => 'vous avez (envoy|pay|retir)|a [ée]t[ée] d[ée]bit',
+            'amount' => $incomingAmount,
+            'phone' => $phone,
+            'txn' => $txn,
+            'balance' => $balance,
+        ];
+    }
+    $rules[] = [
+        'name' => 'Argent sorti (suivi du solde)',
+        'kind' => 'outgoing',
+        'sender' => implode('|', array_column($ops, 2)),
+        'require' => 'envoy|transf[ée]r[ée]|retrait|pay[ée]|d[ée]bit',
+        'exclude' => '',
+        'amount' => $amount,
+        'phone' => '',
+        'txn' => $txn,
+        'balance' => $balance,
+    ];
+    return $rules;
+}
+
+/** Ajoute aux règles personnalisées les règles par défaut des nouveaux opérateurs (migration). */
+function sms_rules_add_missing_defaults(): void
+{
+    $saved = json_decode((string)setting('sms_rules', ''), true);
+    if (!is_array($saved) || !$saved) {
+        return; // règles par défaut utilisées : rien à faire
+    }
+    $names = array_column($saved, 'name');
+    $outgoing = array_values(array_filter($saved, fn($r) => ($r['kind'] ?? '') === 'outgoing'));
+    $incoming = array_values(array_filter($saved, fn($r) => ($r['kind'] ?? '') !== 'outgoing'));
+    foreach (default_sms_rules() as $r) {
+        if ($r['kind'] === 'incoming' && !in_array($r['name'], $names, true)) {
+            $incoming[] = $r;
+        }
+    }
+    setting_set('sms_rules', json_encode(array_merge($incoming, $outgoing), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
 function sms_rules(): array
@@ -110,7 +128,12 @@ function parse_sms(string $sender, string $body, ?array $rules = null): ?array
         }
         $phone = $get('phone');
         $txn = $get('txn');
+        $opCode = $rule['operator'] ?? null;
+        if (!$opCode && function_exists('operator_for_sender')) {
+            $opCode = operator_for_sender($sender)['code'] ?? null;
+        }
         return [
+            'operator' => $opCode,
             'rule' => (string)($rule['name'] ?? 'règle'),
             'kind' => (string)($rule['kind'] ?? 'incoming'),
             'amount' => $amount,

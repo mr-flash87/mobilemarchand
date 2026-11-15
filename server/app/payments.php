@@ -36,8 +36,15 @@ function payment_create(array $in, ?array $merchant): array
             throw new InvalidArgumentException("$u: URL invalide.");
         }
     }
-    if ((string)setting('merchant_number') === '') {
-        throw new InvalidArgumentException('Le numéro marchand n\'est pas encore configuré (Admin > Réglages).');
+    $operator = null;
+    if (!empty($in['operator'])) {
+        $operator = operator_by_code((string)$in['operator']);
+        if (!$operator || !operator_ready($operator)) {
+            $codes = implode(', ', array_column(array_filter(operators(true), 'operator_ready'), 'code'));
+            throw new InvalidArgumentException("operator: opérateur inconnu ou inactif. Valeurs possibles : $codes.");
+        }
+    } elseif (!array_filter(operators(true), 'operator_ready')) {
+        throw new InvalidArgumentException('Aucun opérateur configuré (Admin > Opérateurs : renseignez au moins un numéro marchand).');
     }
     $metadata = $in['metadata'] ?? null;
     if ($metadata !== null && !is_array($metadata)) {
@@ -48,6 +55,7 @@ function payment_create(array $in, ?array $merchant): array
     $data = [
         'reference' => new_reference(),
         'merchant_id' => $merchant['id'] ?? null,
+        'operator_id' => $operator['id'] ?? null,
         'external_ref' => isset($in['reference']) ? mb_substr((string)$in['reference'], 0, 190) : null,
         'amount' => $amount,
         'currency' => (string)setting('currency'),
@@ -86,7 +94,10 @@ function payment_try_late_match(array $payment): void
 
 function payment_public(array $p, bool $full = true): array
 {
-    $code = ussd_code((float)$p['amount']);
+    $amount = (float)$p['amount'];
+    $ops = payment_operators($p);
+    $primary = $ops[0] ?? operator_default();
+    $pp = $primary ? operator_public($primary, $amount) : ['code' => null, 'name' => null, 'merchant_number' => null, 'ussd_code' => null, 'ussd_link' => null, 'ussd_options' => [], 'pay_link' => null];
     $out = [
         'id' => $p['reference'],
         'object' => 'payment',
@@ -96,11 +107,16 @@ function payment_public(array $p, bool $full = true): array
         'description' => $p['description'],
         'reference' => $p['external_ref'],
         'payer_phone' => $p['payer_phone'],
-        'operator' => (string)setting('operator_name'),
-        'merchant_number' => (string)setting('merchant_number'),
-        'ussd_code' => $code,
-        'ussd_link' => ussd_link($code),
-        'ussd_options' => ussd_options((float)$p['amount']),
+        // Opérateur imposé par le marchand (null = le client choisit sur la page de paiement)
+        'operator' => !empty($p['operator_id']) ? $pp['code'] : null,
+        'operator_name' => $pp['name'],
+        'merchant_number' => $pp['merchant_number'],
+        'ussd_code' => $pp['ussd_code'],
+        'ussd_link' => $pp['ussd_link'],
+        'ussd_options' => $pp['ussd_options'],
+        'pay_link' => $pp['pay_link'],
+        'operators' => array_map(fn($o) => operator_public($o, $amount), $ops),
+        'paid_operator' => $p['paid_operator'] ?? null,
         'checkout_url' => abs_url('pay/' . $p['reference']),
         'operator_txn_id' => $p['operator_txn_id'],
         'created_at' => iso($p['created_at']),
@@ -126,6 +142,7 @@ function payment_mark_paid(array $payment, ?array $sms, string $how = 'auto'): b
         'sms_id' => $sms['id'] ?? null,
         'operator_txn_id' => $sms['txn_id'] ?? null,
         'paid_amount' => $sms['amount'] ?? $payment['amount'],
+        'paid_operator' => $sms['operator'] ?? null,
     ];
     // Verrou optimiste : un seul SMS peut valider un paiement.
     $n = db_update('payments', $data, "id = :id AND status IN ('pending','expired')", ['id' => $payment['id']]);
@@ -226,6 +243,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         'phone' => $parsed['phone'] ?? null,
         'txn_id' => $parsed['txn'] ?? null,
         'balance' => $parsed['balance'] ?? null,
+        'operator' => $parsed['operator'] ?? (operator_for_sender($sender)['code'] ?? null),
         'status' => 'ignored',
         'note' => null,
         'created_at' => now(),
@@ -241,7 +259,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         $row['status'] = 'info';
         $id = db_insert('sms_messages', $row);
         if ($device && $parsed['balance'] !== null) {
-            db_update('devices', ['last_balance' => $parsed['balance']], 'id = :id', ['id' => $device['id']]);
+            device_set_balance((int)$device['id'], $row['operator'], (float)$parsed['balance']);
         }
         return ['id' => $id, 'status' => 'info', 'payment' => null];
     }
@@ -259,8 +277,9 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
 
     // Anti-fraude : le nouveau solde doit être égal à l'ancien + le montant reçu.
     $suspect = null;
-    if ($device && setting('balance_check') === '1' && $parsed['balance'] !== null && $device['last_balance'] !== null) {
-        $expected = round((float)$device['last_balance'] + (float)$parsed['amount'], 2);
+    $known = $device ? device_balance($device, $row['operator']) : null;
+    if ($device && setting('balance_check') === '1' && $parsed['balance'] !== null && $known !== null) {
+        $expected = round($known + (float)$parsed['amount'], 2);
         if (abs($expected - (float)$parsed['balance']) > 1.0) {
             $suspect = sprintf('Solde incohérent : attendu %s, SMS annonce %s', fmt_amount($expected), fmt_amount($parsed['balance']));
         }
@@ -279,7 +298,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
     }
 
     if ($device && $parsed['balance'] !== null) {
-        db_update('devices', ['last_balance' => $parsed['balance']], 'id = :id', ['id' => $device['id']]);
+        device_set_balance((int)$device['id'], $row['operator'], (float)$parsed['balance']);
     }
 
     $row['status'] = 'unmatched';

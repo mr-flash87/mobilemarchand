@@ -2,9 +2,11 @@
 $api = abs_url('api/v1');
 $n = h(app_name());
 $cur = h(setting('currency'));
-$op = h(setting('operator_name'));
+$op = h(operators_names());
 $exp = (int)setting('payment_expiry_minutes');
-$opts = ussd_options(5000);
+$opts = ussd_options(5000) ?: [['label' => 'Code USSD', 'code' => '*XXX*70000000*5000#', 'link' => 'tel:*XXX*70000000*5000%23']];
+$readyOps = array_values(array_filter(operators(true), 'operator_ready'));
+$sampleOps = array_map(fn($o) => operator_public($o, 5000), $readyOps ?: array_slice(operators(true), 0, 1));
 view('_head', ['title' => 'Documentation API']);
 view('_public_nav');
 
@@ -47,6 +49,7 @@ $sections = [
     'list' => 'Lister',
     'cancel' => 'Annuler',
     'status' => 'Statuts',
+    'operators' => 'Opérateurs',
     'ussd' => 'Codes USSD',
     'webhooks' => 'Webhooks',
     'verify' => 'Signature',
@@ -118,6 +121,7 @@ $sections = [
             ['amount', 'entier', true, "Montant en $cur (entre " . h(setting('min_amount')) . ' et ' . h(setting('max_amount')) . ').'],
             ['payer_phone', 'texte', true, 'Numéro qui va payer, ex. <code>70123456</code> ou <code>+22670123456</code>.'],
             ['reference', 'texte', false, 'Votre identifiant de commande.'],
+            ['operator', 'texte', false, 'Code de l\'opérateur à imposer (' . ($readyOps ? implode(', ', array_map(fn($o) => '<code>' . h($o['code']) . '</code>', $readyOps)) : '<code>orange</code>…') . '). Sans ce champ, le client choisit son opérateur sur la page de paiement.'],
             ['description', 'texte', false, 'Affiché au client sur la page de paiement.'],
             ['callback_url', 'URL', false, 'URL de webhook pour ce paiement (sinon celle de votre compte).'],
             ['return_url', 'URL', false, 'Où renvoyer le client après paiement (<code>?payment_id=…&amp;status=paid</code> est ajouté).'],
@@ -133,10 +137,12 @@ $sections = [
         <?php
         $sample = [
             'id' => 'PAY-7KQ2M9XT4B', 'object' => 'payment', 'status' => 'pending', 'amount' => 5000, 'currency' => (string)setting('currency'),
-            'description' => null, 'reference' => 'CMD-1042', 'payer_phone' => '70123456', 'operator' => (string)setting('operator_name'),
-            'merchant_number' => (string)setting('merchant_number') ?: '7XXXXXXX',
+            'description' => null, 'reference' => 'CMD-1042', 'payer_phone' => '70123456',
+            'operator' => null, 'operator_name' => $sampleOps[0]['name'] ?? 'Orange Money',
+            'merchant_number' => ($sampleOps[0]['merchant_number'] ?? '') ?: '7XXXXXXX',
             'ussd_code' => $opts[0]['code'], 'ussd_link' => $opts[0]['link'],
-            'ussd_options' => $opts,
+            'ussd_options' => $opts, 'pay_link' => $sampleOps[0]['pay_link'] ?? null,
+            'operators' => $sampleOps, 'paid_operator' => null,
             'checkout_url' => abs_url('pay/PAY-7KQ2M9XT4B'), 'operator_txn_id' => null,
             'created_at' => '2026-11-15T10:00:00Z', 'expires_at' => '2026-11-15T10:' . str_pad((string)$exp, 2, '0', STR_PAD_LEFT) . ':00Z', 'paid_at' => null,
         ];
@@ -177,9 +183,22 @@ $sections = [
         </div>
       </section>
 
+      <section id="operators">
+        <h2>Opérateurs acceptés</h2>
+        <p>Plusieurs opérateurs peuvent être acceptés. Si vous ne précisez pas <code>operator</code>, le client choisit le sien sur la page de paiement.
+          La liste <code>operators</code> de la réponse donne, pour chaque opérateur, le numéro marchand, les codes USSD et l'éventuel lien de paiement (<code>pay_link</code>).
+          Une fois le paiement reçu, <code>paid_operator</code> indique l'opérateur réellement utilisé.</p>
+        <div class="dp">
+          <?php foreach ($readyOps as $o): ?>
+            <div class="dp-row"><div class="dp-name"><code><?= h($o['code']) ?></code></div><div class="dp-desc"><?= h($o['name']) ?></div></div>
+          <?php endforeach; ?>
+          <?php if (!$readyOps): ?><div class="dp-row"><div class="dp-desc">Aucun opérateur configuré pour le moment.</div></div><?php endif; ?>
+        </div>
+      </section>
+
       <section id="ussd">
         <h2>Codes USSD</h2>
-        <p>Chaque paiement indique le code principal (<code>ussd_code</code>, <code>ussd_link</code>) et, dans <code>ussd_options</code>, toutes les façons de payer acceptées. Exemple pour 5 000 F :</p>
+        <p>Pour l'opérateur principal, chaque paiement indique le code principal (<code>ussd_code</code>, <code>ussd_link</code>) et, dans <code>ussd_options</code>, toutes les façons de payer acceptées. Exemple pour 5 000 F :</p>
         <div class="dp">
           <?php foreach ($opts as $i => $o): ?>
             <div class="dp-row"><div class="dp-name"><strong><?= h($o['label']) ?></strong><?php if ($i === 0): ?><span class="dp-req">principal</span><?php endif; ?></div>

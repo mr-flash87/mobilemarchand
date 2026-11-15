@@ -32,7 +32,7 @@
 </div>
 <div class="card table-wrap">
   <table>
-    <tr><th>Référence</th><th>Marchand</th><th>Montant</th><th>Payeur</th><th>Statut</th><th>Créé</th><th>Payé</th></tr>
+    <tr><th>Référence</th><th>Marchand</th><th>Montant</th><th>Payeur</th><th>Opérateur</th><th>Statut</th><th>Créé</th><th>Payé</th></tr>
     <?php foreach ($rows as $p): ?>
       <tr>
         <td><a class="mono small" href="<?= h(url('admin/payments/' . $p['reference'])) ?>"><?= h($p['reference']) ?></a>
@@ -40,11 +40,12 @@
         <td class="small"><?= h($p['merchant_name'] ?? '—') ?></td>
         <td><strong><?= h(fmt_amount($p['amount'])) ?></strong></td>
         <td class="small"><?= h($p['payer_phone']) ?></td>
+        <td class="small"><?php $oc = $p['paid_operator'] ?: (operator_by_id($p['operator_id'] ?? 0)['code'] ?? null); $oo = $oc ? operator_by_code($oc) : null; ?><?= $oo ? '<span class="bal-chip" style="--op:' . h($oo['color']) . '">' . h($oo['name']) . '</span>' : '<span class="muted">—</span>' ?></td>
         <td><?= badge($p['status']) ?></td>
         <td class="small muted"><?= h(fmt_dt($p['created_at'])) ?></td>
         <td class="small muted"><?= h(fmt_dt($p['paid_at'])) ?></td>
       </tr>
     <?php endforeach; ?>
-    <?php if (!$rows): ?><tr><td colspan="7" class="muted">Aucun paiement.</td></tr><?php endif; ?>
+    <?php if (!$rows): ?><tr><td colspan="8" class="muted">Aucun paiement.</td></tr><?php endif; ?>
   </table>
 </div>

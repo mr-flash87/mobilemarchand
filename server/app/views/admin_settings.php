@@ -4,12 +4,7 @@
   <h2>Général</h2>
   <div class="grid g2">
     <div><label>Nom de la plateforme</label><input type="text" name="app_name" value="<?= h(setting('app_name')) ?>"></div>
-    <div><label>Opérateur affiché</label><input type="text" name="operator_name" value="<?= h(setting('operator_name')) ?>"></div>
-    <div><label>Numéro marchand (qui reçoit les paiements)</label><input type="tel" name="merchant_number" value="<?= h(setting('merchant_number')) ?>" placeholder="70000000"></div>
-    <div style="grid-column:1/-1"><label>Codes USSD proposés au client (un par ligne : <code>Libellé | code</code>)</label>
-      <textarea name="ussd_codes" rows="3" style="min-height:80px"><?= h(implode("\n", array_map(fn($t) => $t['label'] . ' | ' . $t['template'], ussd_templates()))) ?></textarea>
-      <span class="small muted"><code>{number}</code> = numéro marchand, <code>{amount}</code> = montant. Le <strong>premier</strong> est le bouton principal, les autres sont proposés en alternative.<br>
-      Aperçu pour 5000 F : <?php foreach (ussd_options(5000) as $o): ?><code><?= h($o['label'] . ' : ' . $o['code']) ?></code> <?php endforeach; ?></span></div>
+    <div style="grid-column:1/-1" class="callout" ><?= icon('wallet', 18) ?><div>Les numéros marchands et les codes USSD se règlent maintenant par opérateur, dans <a href="<?= h(url('admin/operators')) ?>"><strong>Opérateurs</strong></a> (<?= h(operators_names()) ?>).</div></div>
     <div><label>Expiration d'un paiement (minutes)</label><input type="number" name="payment_expiry_minutes" value="<?= h(setting('payment_expiry_minutes')) ?>" min="5"></div>
     <div><label>Rapprocher un SMS arrivé avant la demande (minutes)</label><input type="number" name="late_match_minutes" value="<?= h(setting('late_match_minutes')) ?>" min="1"></div>
     <div><label>Montant minimum</label><input type="number" name="min_amount" value="<?= h(setting('min_amount')) ?>"></div>

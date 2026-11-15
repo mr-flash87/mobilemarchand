@@ -82,8 +82,9 @@ function api_merchant(string $method, array $parts): never
         json_out([
             'object' => 'account',
             'name' => $merchant['name'],
-            'operator' => setting('operator_name'),
-            'merchant_number' => setting('merchant_number'),
+            'operators' => array_map(fn($o) => [
+                'code' => $o['code'], 'name' => $o['name'], 'merchant_number' => $o['merchant_number'],
+            ], array_values(array_filter(operators(true), 'operator_ready'))),
             'currency' => setting('currency'),
             'limits' => ['min_amount' => (float)setting('min_amount'), 'max_amount' => (float)setting('max_amount')],
             'payment_expiry_minutes' => (int)setting('payment_expiry_minutes'),
@@ -127,6 +128,11 @@ function device_config(): array
     foreach (sms_rules() as $r) {
         if (!empty($r['sender'])) {
             $senders[] = $r['sender'];
+        }
+    }
+    foreach (operators(true) as $o) {
+        if (trim((string)$o['sms_sender']) !== '') {
+            $senders[] = $o['sms_sender'];
         }
     }
     return [

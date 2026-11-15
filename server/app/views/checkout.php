@@ -23,31 +23,70 @@ view('_head', ['title' => 'Paiement ' . $p['reference'], 'noindex' => true]);
   </div>
 
   <div class="card" id="howto">
-    <h2>Payer avec <?= h(setting('operator_name')) ?></h2>
-    <ol class="steps">
-      <li>Utilisez le téléphone avec le numéro <strong><?= h($masked) ?></strong>. Le paiement est reconnu grâce à ce numéro.</li>
-      <li>Appuyez sur le bouton ci-dessous (ou composez le code) et validez avec votre code secret.</li>
-      <li>Restez sur cette page : la confirmation est automatique, en général en moins d'une minute.</li>
-    </ol>
-    <?php $opts = $pub['ussd_options']; $main = $opts[0]; ?>
-    <a class="btn primary big" href="<?= h($main['link']) ?>">📞 Payer <?= h(fmt_amount($p['amount'])) ?></a>
-    <p class="small muted" style="margin:12px 0 6px">Ou composez<?= count($opts) > 1 ? ' (' . h($main['label']) . ')' : '' ?> :</p>
-    <div class="ussd"><?= h($main['code']) ?></div>
-    <div class="row" style="margin-top:10px">
-      <button class="btn sm" type="button" onclick="copyText(<?= h(json_encode($main['code'])) ?>, this)">Copier le code</button>
-      <span class="small muted">Numéro marchand : <strong><?= h(setting('merchant_number')) ?></strong></span>
-    </div>
-    <?php if (count($opts) > 1): ?>
-      <details class="alt-codes">
-        <summary>Le code ne marche pas ? Autres façons de payer</summary>
-        <?php foreach (array_slice($opts, 1) as $o): ?>
-          <div class="alt-code">
-            <div><div class="small muted"><?= h($o['label']) ?></div><div class="mono"><?= h($o['code']) ?></div></div>
-            <a class="btn sm" href="<?= h($o['link']) ?>">📞 Composer</a>
-            <button class="btn sm" type="button" onclick="copyText(<?= h(json_encode($o['code'])) ?>, this)">Copier</button>
+    <?php $ops = $pub['operators']; ?>
+    <?php if (!$ops): ?>
+      <p class="muted">Aucun moyen de paiement n'est disponible pour le moment. Contactez le marchand.</p>
+    <?php else: ?>
+      <h2><?= count($ops) > 1 ? 'Choisissez votre opérateur' : 'Payer avec ' . h($ops[0]['name']) ?></h2>
+      <?php if (count($ops) > 1): ?>
+        <div class="op-pick" role="tablist">
+          <?php foreach ($ops as $i => $o): ?>
+            <button type="button" role="tab" class="op-tab<?= $i === 0 ? ' on' : '' ?>" data-op="<?= h($o['code']) ?>" style="--op:<?= h($o['color'] ?: '#0b5fff') ?>">
+              <span class="op-dot sm"><?= h(mb_strtoupper(mb_substr($o['name'], 0, 1))) ?></span><?= h($o['name']) ?>
+            </button>
+          <?php endforeach; ?>
+        </div>
+      <?php endif; ?>
+
+      <?php foreach ($ops as $i => $o): $uo = $o['ussd_options']; $main = $uo[0] ?? null; ?>
+        <div class="op-panel" data-panel="<?= h($o['code']) ?>" <?= $i === 0 ? '' : 'hidden' ?> style="--op:<?= h($o['color'] ?: '#0b5fff') ?>">
+          <ol class="steps">
+            <li>Utilisez le téléphone avec le numéro <strong><?= h($masked) ?></strong> : le paiement est reconnu grâce à ce numéro.</li>
+            <?php if ($main): ?>
+              <li>Appuyez sur le bouton ci-dessous (ou composez le code) et validez avec votre code secret <?= h($o['name']) ?>.</li>
+            <?php elseif ($o['pay_link']): ?>
+              <li>Appuyez sur le bouton ci-dessous pour payer avec <?= h($o['name']) ?>.</li>
+            <?php else: ?>
+              <li>Envoyez exactement <strong><?= h(fmt_amount($p['amount'], 'F')) ?></strong> au numéro <strong><?= h($o['merchant_number']) ?></strong> avec <?= h($o['name']) ?>.</li>
+            <?php endif; ?>
+            <li>Restez sur cette page : la confirmation est automatique, en général en moins d'une minute.</li>
+          </ol>
+          <?php if ($o['instructions']): ?><p class="op-note"><?= nl2br(h($o['instructions'])) ?></p><?php endif; ?>
+
+          <?php if ($main): ?>
+            <a class="btn big op-btn" href="<?= h($main['link']) ?>">📞 Payer <?= h(fmt_amount($p['amount'])) ?> avec <?= h($o['name']) ?></a>
+          <?php elseif ($o['pay_link']): ?>
+            <a class="btn big op-btn" href="<?= h($o['pay_link']) ?>" target="_blank" rel="noopener">Payer <?= h(fmt_amount($p['amount'])) ?> avec <?= h($o['name']) ?></a>
+          <?php endif; ?>
+          <?php if ($main && $o['pay_link']): ?>
+            <a class="btn big" style="margin-top:8px" href="<?= h($o['pay_link']) ?>" target="_blank" rel="noopener">Ou payer avec le lien <?= h($o['name']) ?></a>
+          <?php endif; ?>
+
+          <?php if ($main): ?>
+            <p class="small muted" style="margin:12px 0 6px">Ou composez<?= count($uo) > 1 ? ' (' . h($main['label']) . ')' : '' ?> :</p>
+            <div class="ussd"><?= h($main['code']) ?></div>
+          <?php endif; ?>
+          <div class="row" style="margin-top:10px">
+            <?php if ($main): ?><button class="btn sm" type="button" onclick="copyText(<?= h(json_encode($main['code'])) ?>, this)">Copier le code</button><?php endif; ?>
+            <?php if ($o['merchant_number']): ?>
+              <span class="small muted">Numéro marchand : <strong><?= h($o['merchant_number']) ?></strong></span>
+              <button class="btn sm" type="button" onclick="copyText(<?= h(json_encode((string)$o['merchant_number'])) ?>, this)">Copier le numéro</button>
+            <?php endif; ?>
           </div>
-        <?php endforeach; ?>
-      </details>
+          <?php if (count($uo) > 1): ?>
+            <details class="alt-codes">
+              <summary>Le code ne marche pas ? Autres façons de payer</summary>
+              <?php foreach (array_slice($uo, 1) as $u): ?>
+                <div class="alt-code">
+                  <div><div class="small muted"><?= h($u['label']) ?></div><div class="mono"><?= h($u['code']) ?></div></div>
+                  <a class="btn sm" href="<?= h($u['link']) ?>">📞 Composer</a>
+                  <button class="btn sm" type="button" onclick="copyText(<?= h(json_encode($u['code'])) ?>, this)">Copier</button>
+                </div>
+              <?php endforeach; ?>
+            </details>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
     <?php endif; ?>
   </div>
 
@@ -93,6 +132,16 @@ view('_head', ['title' => 'Paiement ' . $p['reference'], 'noindex' => true]);
     setTimeout(poll, delay);
   }
   schedule();
+})();
+(function(){
+  var tabs = document.querySelectorAll('.op-tab'), panels = document.querySelectorAll('.op-panel');
+  function pick(code){
+    tabs.forEach(function(t){ t.classList.toggle('on', t.dataset.op === code); });
+    panels.forEach(function(p){ p.hidden = p.dataset.panel !== code; });
+    try { localStorage.setItem('fp_op', code); } catch (e) {}
+  }
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ pick(t.dataset.op); }); });
+  try { var saved = localStorage.getItem('fp_op'); if (saved && document.querySelector('.op-tab[data-op="' + saved + '"]')) pick(saved); } catch (e) {}
 })();
 function copyText(t, btn){
   (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function(){

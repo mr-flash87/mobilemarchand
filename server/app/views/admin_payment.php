@@ -8,6 +8,7 @@
       <tr><th>Marchand</th><td><?= h($merchant['name'] ?? '—') ?></td></tr>
       <tr><th>Réf. marchand</th><td><?= h($pay['external_ref'] ?? '—') ?></td></tr>
       <tr><th>Payeur</th><td><?= h($pay['payer_phone']) ?></td></tr>
+      <tr><th>Opérateur</th><td><?php $oc = $pay['paid_operator'] ?: (operator_by_id($pay['operator_id'] ?? 0)['code'] ?? null); $oo = $oc ? operator_by_code($oc) : null; ?><?= $oo ? h($oo['name']) . ($pay['paid_operator'] ? ' (payé)' : ' (imposé)') : 'Au choix du client' ?></td></tr>
       <tr><th>Description</th><td><?= h($pay['description'] ?? '—') ?></td></tr>
       <tr><th>Code USSD</th><td class="mono"><?= h($pub['ussd_code']) ?></td></tr>
       <tr><th>Lien client</th><td><a href="<?= h($pub['checkout_url']) ?>" target="_blank"><?= h($pub['checkout_url']) ?></a></td></tr>

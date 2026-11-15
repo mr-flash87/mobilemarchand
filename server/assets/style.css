@@ -428,3 +428,29 @@ html{scroll-behavior:smooth}
   .dh{padding:30px 0 24px}
 }
 @media (max-width:560px){.dc pre{font-size:.76rem;padding:12px}.lp-nav-in{gap:12px}}
+
+/* ================= Opérateurs ================= */
+.op-dot{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--op,#0b5fff);color:#fff;font-weight:800;flex:none}
+.op-dot.sm{width:26px;height:26px;border-radius:8px;font-size:.8rem}
+.op-card{border-top:4px solid var(--op,#0b5fff)}
+.op-head{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+.op-title{flex:1;min-width:160px;display:flex;flex-direction:column}
+.op-title strong{font-size:1.1rem}
+.op-move{display:flex;gap:2px}
+.op-move .icon-btn{width:30px;height:30px;font-size:.75rem;color:var(--muted)}
+.op-move .icon-btn:disabled{opacity:.3;cursor:default}
+.op-color{width:64px;height:40px;padding:2px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.op-pick{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:4px 0 16px}
+.op-tab{display:flex;align-items:center;gap:8px;padding:10px;border:2px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);font:inherit;font-weight:600;font-size:.9rem;cursor:pointer;text-align:left}
+.op-tab.on{border-color:var(--op);box-shadow:0 0 0 3px color-mix(in srgb,var(--op) 18%,transparent)}
+.op-btn{background:var(--op,#0b5fff);border-color:var(--op,#0b5fff);color:#fff}
+.op-btn:hover{filter:brightness(.95)}
+.op-note{background:var(--bg);border-left:3px solid var(--op);padding:10px 12px;border-radius:8px;font-size:.92rem}
+.bal-grid{display:grid;gap:8px}
+.bal-in{display:flex;align-items:center;gap:8px;border-left:3px solid var(--op);padding-left:8px}
+.bal-in>span{min-width:110px;font-size:.88rem;font-weight:600}
+.bal-in input{flex:1;min-width:0}
+.bal-in.sm>span{min-width:90px;font-size:.8rem}
+.bal-in.sm input{padding:6px 8px;width:100px;flex:none}
+.bal-form{display:grid;gap:6px}
+.bal-chip{display:inline-flex;gap:4px;align-items:center;margin:2px 6px 2px 0;padding:2px 8px;border-radius:99px;background:var(--bg);border-left:3px solid var(--op);font-size:.8rem}

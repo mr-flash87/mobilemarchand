@@ -77,6 +77,9 @@ function admin_route(string $method, array $p): void
         case 'simulate':
             admin_simulate($method);
             return;
+        case 'operators':
+            admin_operators($method);
+            return;
         case 'push':
             admin_push($method, $user);
             return;
@@ -143,7 +146,7 @@ function admin_dashboard(): void
 
     // Liste de mise en route.
     $setup = [
-        ['done' => (string)setting('merchant_number') !== '', 'label' => 'Renseigner votre numéro marchand', 'href' => 'admin/settings'],
+        ['done' => (bool)array_filter(operators(true), 'operator_ready'), 'label' => 'Configurer vos opérateurs et numéros marchands', 'href' => 'admin/operators'],
         ['done' => (bool)q_val('SELECT COUNT(*) FROM merchants'), 'label' => 'Créer un marchand et sa clé API', 'href' => 'admin/merchants'],
         ['done' => (bool)q_val('SELECT COUNT(*) FROM devices WHERE token_hash IS NOT NULL AND active = 1'), 'label' => 'Associer le téléphone passerelle', 'href' => 'admin/devices'],
         ['done' => $stats['count_total'] > 0, 'label' => 'Recevoir un premier paiement (ou le simuler)', 'href' => 'admin/simulate'],
@@ -226,14 +229,14 @@ function admin_sms(string $method, array $p): void
             } else {
                 payment_mark_paid($pay, $sms, 'manual');
                 if ($sms['balance'] !== null && $sms['device_id']) {
-                    db_update('devices', ['last_balance' => $sms['balance']], 'id = :id', ['id' => $sms['device_id']]);
+                    device_set_balance((int)$sms['device_id'], $sms['operator'], (float)$sms['balance']);
                 }
                 flash('SMS rapproché du paiement ' . $pay['reference'] . '.');
             }
         } elseif ($sms && $a === 'approve' && $sms['status'] === 'review') {
             // L'admin confirme que l'argent est bien arrivé : on resynchronise le solde puis on rapproche.
             if ($sms['balance'] !== null && $sms['device_id']) {
-                db_update('devices', ['last_balance' => $sms['balance']], 'id = :id', ['id' => $sms['device_id']]);
+                device_set_balance((int)$sms['device_id'], $sms['operator'], (float)$sms['balance']);
             }
             db_update('sms_messages', ['status' => 'unmatched', 'note' => 'Vérifié par l\'admin'], 'id = :id', ['id' => $sms['id']]);
             $sms = q_one('SELECT * FROM sms_messages WHERE id = ?', [$sms['id']]);
@@ -343,10 +346,15 @@ function admin_devices(string $method, array $p): void
                 'sim_number' => trim((string)($_POST['sim_number'] ?? '')) ?: null,
                 'pair_code' => $code,
                 'pair_expires_at' => ts_plus(1800),
-                'last_balance' => is_numeric($_POST['balance'] ?? null) ? (float)$_POST['balance'] : null,
                 'active' => 1,
                 'created_at' => now(),
             ]);
+            $newId = (int)db()->lastInsertId();
+            foreach ((array)($_POST['balances'] ?? []) as $opCode => $val) {
+                if (trim((string)$val) !== '' && operator_by_code((string)$opCode)) {
+                    device_set_balance($newId, (string)$opCode, parse_amount((string)$val));
+                }
+            }
             flash("Téléphone ajouté. Code d'association : $code (valable 30 min).");
             redirect('admin/devices');
         }
@@ -357,8 +365,12 @@ function admin_devices(string $method, array $p): void
                 db_update('devices', ['pair_code' => $code, 'pair_expires_at' => ts_plus(1800)], 'id = :id', ['id' => $d['id']]);
                 flash("Nouveau code d'association : $code (valable 30 min). L'ancien téléphone reste actif jusqu'à la nouvelle association.");
             } elseif ($a === 'balance') {
-                $b = trim((string)($_POST['balance'] ?? ''));
-                db_update('devices', ['last_balance' => $b === '' ? null : parse_amount($b)], 'id = :id', ['id' => $d['id']]);
+                foreach ((array)($_POST['balances'] ?? []) as $opCode => $val) {
+                    if (operator_by_code((string)$opCode)) {
+                        $val = trim((string)$val);
+                        device_set_balance((int)$d['id'], (string)$opCode, $val === '' ? null : parse_amount($val));
+                    }
+                }
                 flash('Solde de référence mis à jour.');
             } elseif ($a === 'revoke') {
                 db_update('devices', ['active' => 0, 'token_hash' => null, 'pair_code' => null], 'id = :id', ['id' => $d['id']]);
@@ -378,7 +390,7 @@ function admin_settings(string $method): void
     if ($method === 'POST') {
         $a = $_POST['action'] ?? 'save';
         if ($a === 'save') {
-            $fields = ['app_name', 'timezone', 'currency', 'operator_name', 'merchant_number', 'ussd_codes',
+            $fields = ['app_name', 'timezone', 'currency', 
                 'payment_expiry_minutes', 'min_amount', 'max_amount', 'late_match_minutes', 'support_whatsapp'];
             foreach ($fields as $f) {
                 if (isset($_POST[$f])) {
@@ -482,4 +494,87 @@ function admin_push(string $method, array $user): never
         json_out(['ok' => $n > 0, 'sent' => $n]);
     }
     json_error('invalid_request', 'Action inconnue.', 422);
+}
+
+function admin_operators(string $method): void
+{
+    if ($method === 'POST') {
+        $a = (string)($_POST['action'] ?? '');
+        $fields = function (): array {
+            $color = trim((string)($_POST['color'] ?? ''));
+            return [
+                'name' => mb_substr(trim((string)($_POST['name'] ?? '')), 0, 100),
+                'color' => preg_match('/^#[0-9a-fA-F]{6}$/', $color) ? $color : '#0b5fff',
+                'merchant_number' => mb_substr(trim((string)($_POST['merchant_number'] ?? '')), 0, 40),
+                'ussd_codes' => trim((string)($_POST['ussd_codes'] ?? '')),
+                'pay_link' => mb_substr(trim((string)($_POST['pay_link'] ?? '')), 0, 500),
+                'sms_sender' => mb_substr(trim((string)($_POST['sms_sender'] ?? '')), 0, 255),
+                'instructions' => trim((string)($_POST['instructions'] ?? '')),
+                'active' => !empty($_POST['active']) ? 1 : 0,
+            ];
+        };
+        $check = function (array $f): ?string {
+            if ($f['name'] === '') {
+                return 'Le nom est obligatoire.';
+            }
+            if ($f['sms_sender'] !== '' && !rx_valid($f['sms_sender'])) {
+                return 'Expéditeur SMS : expression invalide.';
+            }
+            if ($f['pay_link'] !== '' && !preg_match('#^https?://#', $f['pay_link'])) {
+                return 'Le lien de paiement doit commencer par https://';
+            }
+            return null;
+        };
+        if ($a === 'create') {
+            $f = $fields();
+            $code = strtolower(preg_replace('/[^a-z0-9]+/i', '-', trim((string)($_POST['code'] ?? '')) ?: $f['name']));
+            $code = trim($code, '-');
+            if ($err = $check($f)) {
+                flash($err, 'err');
+            } elseif ($code === '' || operator_by_code($code)) {
+                flash('Ce code d\'opérateur existe déjà ou est vide.', 'err');
+            } else {
+                db_insert('operators', $f + ['code' => $code, 'sort_order' => count(operators()) + 1, 'created_at' => now()]);
+                flash('Opérateur « ' . $f['name'] . ' » ajouté.');
+            }
+        } else {
+            $op = operator_by_id((int)($_POST['id'] ?? 0));
+            if (!$op) {
+                flash('Opérateur introuvable.', 'err');
+            } elseif ($a === 'update') {
+                $f = $fields();
+                if ($err = $check($f)) {
+                    flash($err, 'err');
+                } else {
+                    db_update('operators', $f, 'id = :id', ['id' => $op['id']]);
+                    flash('Opérateur « ' . $f['name'] . ' » enregistré.');
+                }
+            } elseif ($a === 'up' || $a === 'down') {
+                $list = operators();
+                $i = array_search($op['id'], array_column($list, 'id'));
+                $j = $a === 'up' ? $i - 1 : $i + 1;
+                if (isset($list[$j])) {
+                    [$list[$i], $list[$j]] = [$list[$j], $list[$i]];
+                    foreach ($list as $k => $o) {
+                        db_update('operators', ['sort_order' => $k + 1], 'id = :id', ['id' => $o['id']]);
+                    }
+                }
+            } elseif ($a === 'delete') {
+                if ((int)q_val('SELECT COUNT(*) FROM payments WHERE operator_id = ?', [$op['id']]) > 0) {
+                    db_update('operators', ['active' => 0], 'id = :id', ['id' => $op['id']]);
+                    flash('Des paiements utilisent cet opérateur : il a été désactivé au lieu d\'être supprimé.');
+                } else {
+                    q('DELETE FROM operators WHERE id = ?', [$op['id']]);
+                    flash('Opérateur supprimé.');
+                }
+            }
+        }
+        redirect('admin/operators');
+    }
+    $rows = operators();
+    $stats = [];
+    foreach (q_all("SELECT paid_operator, COUNT(*) AS n, COALESCE(SUM(amount),0) AS total FROM payments WHERE status = 'paid' GROUP BY paid_operator") as $r) {
+        $stats[(string)$r['paid_operator']] = $r;
+    }
+    admin_page('admin_operators', 'Opérateurs', compact('rows', 'stats'));
 }

@@ -5,8 +5,14 @@
     <h2>Ajouter un téléphone</h2>
     <label>Nom</label><input type="text" name="name" placeholder="Ex. Samsung A10 - Orange" required>
     <label>Numéro de la SIM marchande</label><input type="tel" name="sim_number" placeholder="70000000">
-    <label>Solde actuel du compte (pour le contrôle anti-fraude)</label><input type="text" name="balance" placeholder="Ex. 15000">
-    <p class="small muted">Consultez votre solde (#144# ou menu de l'opérateur) et saisissez-le ici. Il sera ensuite mis à jour à chaque SMS.</p>
+    <label>Solde actuel de chaque compte (pour le contrôle anti-fraude)</label>
+    <div class="bal-grid">
+      <?php foreach (operators(true) as $o): ?>
+        <span class="bal-in" style="--op:<?= h($o['color']) ?>"><span><?= h($o['name']) ?></span>
+          <input type="text" name="balances[<?= h($o['code']) ?>]" placeholder="ex. 15000"></span>
+      <?php endforeach; ?>
+    </div>
+    <p class="small muted">Remplissez seulement les opérateurs dont la SIM est dans ce téléphone (un téléphone double SIM peut en avoir deux). Le solde est ensuite mis à jour à chaque SMS.</p>
     <button class="btn primary">Ajouter et obtenir le code</button>
   </form>
   <div class="card">
@@ -23,7 +29,7 @@
 </div>
 <div class="card table-wrap">
   <table>
-    <tr><th>Téléphone</th><th>État</th><th>Code d'association</th><th>Solde de référence</th><th>Actions</th></tr>
+    <tr><th>Téléphone</th><th>État</th><th>Code d'association</th><th>Soldes de référence</th><th>Actions</th></tr>
     <?php foreach ($rows as $d): $on = device_online($d); ?>
       <tr>
         <td><strong><?= h($d['name']) ?></strong><br><span class="small muted"><?= h($d['sim_number']) ?> · <?= (int)$d['sms_count'] ?> SMS · app <?= h($d['app_version'] ?: '—') ?></span></td>
@@ -41,8 +47,11 @@
         </td>
         <td>
           <?php if ($d['active']): ?>
-            <form method="post" class="row"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
-              <input type="text" name="balance" value="<?= $d['last_balance'] !== null ? h((float)$d['last_balance']) : '' ?>" style="width:110px" placeholder="inconnu">
+            <form method="post" class="bal-form"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$d['id'] ?>">
+              <?php foreach (operators(true) as $o): $bv = device_balance($d, $o['code']); ?>
+                <span class="bal-in sm" style="--op:<?= h($o['color']) ?>"><span><?= h($o['name']) ?></span>
+                  <input type="text" name="balances[<?= h($o['code']) ?>]" value="<?= $bv !== null ? h($bv) : '' ?>" placeholder="—"></span>
+              <?php endforeach; ?>
               <button class="btn sm" name="action" value="balance">OK</button></form>
           <?php endif; ?>
         </td>

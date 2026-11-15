@@ -1,6 +1,6 @@
 <?php
 $name = app_name();
-$op = (string)setting('operator_name');
+$op = operators_names();
 $wa = preg_replace('/\D+/', '', (string)setting('support_whatsapp'));
 $contact = $wa ? 'https://wa.me/' . $wa . '?text=' . rawurlencode('Bonjour, je souhaite utiliser ' . $name . ' pour encaisser des paiements.') : url('docs');
 view('_head', ['title' => 'Paiements Mobile Money automatiques']);

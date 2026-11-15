@@ -21,7 +21,7 @@ $todayKey = array_key_last($days);
 <div class="page-head">
   <div>
     <h1><?= h($hello) ?> 👋</h1>
-    <p class="muted">Voici l'activité de votre passerelle <?= h(setting('operator_name')) ?>.</p>
+    <p class="muted">Voici l'activité de votre passerelle <?= h(operators_names()) ?>.</p>
   </div>
   <div class="row">
     <a class="btn" href="<?= h(url('admin/simulate')) ?>"><?= icon('flask', 16) ?> Simuler un SMS</a>
@@ -145,7 +145,7 @@ $todayKey = array_key_last($days);
               <span class="small"><?= (int)$d['battery'] ?>%<?= $d['charging'] ? ' ⚡' : '' ?></span>
             <?php endif; ?>
             <span class="spacer"></span>
-            <span class="small">Solde : <strong><?= $d['last_balance'] !== null ? h(fmt_amount($d['last_balance'])) : '—' ?></strong></span>
+            <span class="small"><?php $bal = device_balances($d); if (!$bal): ?>Solde : —<?php endif; foreach ($bal as $oc => $bv): $oo = operator_by_code((string)$oc); ?><span class="bal-chip" style="--op:<?= h($oo['color'] ?? '#64748b') ?>"><?= h($oo['name'] ?? $oc) ?> <strong><?= h(fmt_amount($bv)) ?></strong></span><?php endforeach; ?></span>
           </div>
         </div>
       </div>

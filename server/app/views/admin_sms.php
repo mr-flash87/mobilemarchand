@@ -6,7 +6,7 @@
 </div>
 <div class="alert warn small">
   <strong>Non rapproché</strong> : l'argent est arrivé mais aucun paiement en attente ne correspond (mauvais numéro, montant différent, client parti…). Saisissez la référence du paiement pour le valider.<br>
-  <strong>À vérifier</strong> : le solde annoncé ne correspond pas au solde attendu. Vérifiez sur votre compte <?= h(setting('operator_name')) ?> que l'argent est bien là avant de valider : ce peut être un faux SMS.
+  <strong>À vérifier</strong> : le solde annoncé ne correspond pas au solde attendu. Vérifiez sur votre compte Mobile Money que l'argent est bien là avant de valider : ce peut être un faux SMS.
 </div>
 <div class="card table-wrap">
   <table>

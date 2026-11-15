@@ -197,6 +197,20 @@ function db_schema(string $driver): array
         user_agent VARCHAR(255) NULL,
         created_at $dt NOT NULL
     )$engine";
+    $t[] = "CREATE TABLE IF NOT EXISTS operators (
+        id $pk,
+        code VARCHAR(30) NOT NULL UNIQUE,
+        name VARCHAR(100) NOT NULL,
+        color VARCHAR(10) NULL,
+        merchant_number VARCHAR(40) NULL,
+        ussd_codes $text NULL,
+        pay_link VARCHAR(500) NULL,
+        sms_sender VARCHAR(255) NULL,
+        instructions $text NULL,
+        active SMALLINT NOT NULL DEFAULT 1,
+        sort_order INT NOT NULL DEFAULT 0,
+        created_at $dt NOT NULL
+    )$engine";
     return $t;
 }
 
@@ -214,14 +228,39 @@ function db_install_schema(PDO $pdo, string $driver): void
     }
 }
 
-/** Version du schéma : les tables ajoutées après l'installation sont créées automatiquement. */
-const SCHEMA_VERSION = 2;
+/** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
+const SCHEMA_VERSION = 3;
+
+function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
+{
+    try {
+        db()->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', $table, $column, db_driver() === 'sqlite' ? $sqliteType : $mysqlType));
+    } catch (PDOException $e) {
+        // La colonne existe déjà.
+    }
+}
 
 function db_migrate(): void
 {
-    if ((int)setting('schema_version', '1') >= SCHEMA_VERSION) {
+    $v = (int)setting('schema_version', '1');
+    if ($v >= SCHEMA_VERSION) {
         return;
     }
-    db_install_schema(db(), db_driver());
+    db_install_schema(db(), db_driver()); // nouvelles tables (push, opérateurs)
+    if ($v < 3) {
+        db_add_column('payments', 'operator_id', 'INT UNSIGNED NULL', 'INTEGER NULL');
+        db_add_column('payments', 'paid_operator', 'VARCHAR(30) NULL', 'TEXT NULL');
+        db_add_column('sms_messages', 'operator', 'VARCHAR(30) NULL', 'TEXT NULL');
+        db_add_column('devices', 'balances', 'TEXT NULL', 'TEXT NULL');
+        operators_reset_cache();
+        operators_seed();
+        operators_reset_cache();
+        // Ancien solde unique -> solde de l'opérateur principal.
+        $first = operators()[0]['code'] ?? 'orange';
+        foreach (q_all('SELECT id, last_balance FROM devices WHERE last_balance IS NOT NULL') as $d) {
+            device_set_balance((int)$d['id'], $first, (float)$d['last_balance']);
+        }
+        sms_rules_add_missing_defaults();
+    }
     setting_set('schema_version', (string)SCHEMA_VERSION);
 }
