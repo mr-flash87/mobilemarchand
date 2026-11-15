@@ -36,6 +36,13 @@ jobs:
           for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD FTP_DIR; do
             [ -z "${!v}" ] && missing="$missing $v"
           done
+          for v in FTP_SERVER FTP_USERNAME FTP_PASSWORD FTP_DIR; do
+            val="${!v}"; trimmed="$(printf '%s' "$val" | tr -d '[:space:]')"
+            if [ "$val" != "$trimmed" ]; then echo "::warning::$v contient un espace ou un retour à la ligne (à retirer)."; fi
+            echo "$v : ${#val} caractères"
+          done
+          if [ "$FTP_USERNAME" != "u426568232.marchand.pixelpub.online" ]; then echo "::warning::FTP_USERNAME ne correspond pas à u426568232.marchand.pixelpub.online"; else echo "FTP_USERNAME : OK"; fi
+          if [ "$FTP_SERVER" != "178.16.128.202" ]; then echo "::warning::FTP_SERVER ne correspond pas à 178.16.128.202"; else echo "FTP_SERVER : OK"; fi
           if [ -n "$missing" ]; then
             echo "::error::Secrets manquants :$missing. Ajoutez-les dans Settings > Secrets and variables > Actions."
             exit 1
