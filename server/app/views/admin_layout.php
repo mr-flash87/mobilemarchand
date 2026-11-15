@@ -17,6 +17,7 @@ $nav = $isAdmin ? [
     'operators' => ['Mes opérateurs', 'wallet'],
     'devices' => ['Mes téléphones', 'phone'],
     'api' => ['Clés API & webhook', 'store'],
+    'subscription' => ['Abonnement', 'card'],
     'simulate' => ['Simulateur', 'flask'],
     'settings' => ['Mon compte', 'gear'],
 ];
@@ -77,6 +78,16 @@ $pendingMerchants = $isAdmin ? (int)q_val("SELECT COUNT(*) FROM merchants WHERE 
     <main class="content">
       <?php if (!$isAdmin && ($merchantCtx['status'] ?? '') === 'pending'): ?>
         <div class="alert warn"><strong>Compte en attente de validation.</strong> Vous pouvez déjà configurer vos opérateurs et votre téléphone, et tester avec le simulateur. Les paiements réels et la clé API seront activés dès que l'administrateur aura validé votre compte.</div>
+      <?php endif; ?>
+      <?php if (!$isAdmin && subscription_enabled() && $current !== 'subscription'):
+        $left = subscription_days_left($merchantCtx); ?>
+        <?php if ($left === 0): ?>
+          <div class="alert err sub-banner"><span><strong>Abonnement inactif.</strong> Payez <?= h(fmt_amount(subscription_price(), 'F')) ?> pour <?= subscription_days() ?> jours afin d'encaisser vos paiements.</span>
+            <a class="btn sm primary" href="<?= h(aurl('subscription')) ?>">Payer l'abonnement</a></div>
+        <?php elseif ($left <= 5): ?>
+          <div class="alert warn sub-banner"><span>Votre abonnement se termine dans <strong><?= $left ?> jour<?= $left > 1 ? 's' : '' ?></strong>.</span>
+            <a class="btn sm" href="<?= h(aurl('subscription')) ?>">Renouveler</a></div>
+        <?php endif; ?>
       <?php endif; ?>
       <?php foreach (flash() as [$type, $msg]): ?>
         <div class="alert <?= h($type) ?>"><?= h($msg) ?></div>

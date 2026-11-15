@@ -38,6 +38,9 @@ function payment_create(array $in, ?array $merchant): array
     }
     $operator = null;
     $scope = merchant_scope($merchant);
+    if ($scope !== null && !subscription_active($merchant)) {
+        throw new SubscriptionRequired('Abonnement inactif : payez votre abonnement mensuel dans votre espace (Abonnement) pour encaisser.');
+    }
     if (!empty($in['operator'])) {
         $operator = operator_by_code((string)$in['operator'], $scope);
         if (!$operator || !operator_ready($operator)) {
@@ -161,6 +164,7 @@ function payment_mark_paid(array $payment, ?array $sms, string $how = 'auto'): b
     }
     log_line("payment {$payment['reference']} paid ($how)");
     webhook_queue($payment['id'], 'payment.succeeded');
+    subscription_on_paid($payment);
     if ($how !== 'manual') {
         $m = $payment['merchant_id'] ? q_val('SELECT name FROM merchants WHERE id = ?', [$payment['merchant_id']]) : null;
         push_notify(

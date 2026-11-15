@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -289,6 +289,9 @@ function db_migrate(): void
         } catch (PDOException $e) {
         }
         operators_reset_cache();
+    }
+    if ($v < 8) {
+        db_add_column('merchants', 'paid_until', 'DATETIME NULL', 'TEXT NULL');
     }
     // Opérateurs par défaut de la plateforme (une fois toutes les colonnes créées).
     operators_reset_cache();

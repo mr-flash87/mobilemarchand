@@ -5,13 +5,20 @@
     <span class="small muted">Lien d'inscription : <a href="<?= h(url('espace/inscription')) ?>" target="_blank"><?= h(abs_url('espace/inscription')) ?></a></span></div>
   <p class="small muted">Ils utilisent leurs propres numéros et téléphones. Validez-les avant qu'ils puissent encaisser.</p>
   <div class="table-wrap"><table>
-    <tr><th>Marchand</th><th>Contact</th><th>Statut</th><th>Configuration</th><th>Encaissé</th><th>Action</th></tr>
+    <tr><th>Marchand</th><th>Contact</th><th>Statut</th><th>Abonnement</th><th>Configuration</th><th>Encaissé</th><th>Action</th></tr>
     <?php foreach ($tenants as $t): ?>
       <tr>
         <td><strong><?= h($t['name']) ?></strong><br><span class="small muted">inscrit le <?= h(fmt_dt($t['created_at'])) ?></span></td>
         <td class="small"><?= h($t['email']) ?><br><?= h($t['phone']) ?>
           <?php $wa = preg_replace('/\D+/', '', (string)$t['phone']); if ($wa): ?> · <a href="https://wa.me/<?= h(strlen($wa) === 8 ? '226' . $wa : $wa) ?>" target="_blank">WhatsApp</a><?php endif; ?></td>
         <td><?= $t['status'] === 'active' ? '<span class="badge b-paid">Validé</span>' : ($t['status'] === 'pending' ? '<span class="badge b-pending">En attente</span>' : '<span class="badge b-cancelled">Suspendu</span>') ?></td>
+        <td class="small"><?php $left = subscription_days_left($t); ?>
+          <?= $left > 0 ? '<span class="badge b-paid">Actif</span><br>jusqu\'au ' . h(fmt_dt($t['paid_until'])) : '<span class="badge b-expired">' . ($t['paid_until'] ? 'Expiré' : 'Non payé') . '</span>' ?>
+          <form method="post" class="row" style="margin-top:6px"><?= csrf_field() ?><input type="hidden" name="id" value="<?= (int)$t['id'] ?>">
+            <input type="number" name="days" value="<?= subscription_days() ?>" min="1" max="366" style="width:64px;padding:4px 6px">
+            <button class="btn sm" name="action" value="gift" title="Ajouter des jours gratuitement">Offrir</button>
+            <?php if ($left > 0): ?><button class="btn sm danger" name="action" value="end_sub" onclick="return confirm('Arrêter l\'abonnement maintenant ?')">Arrêter</button><?php endif; ?>
+          </form></td>
         <td class="small"><?= (int)$t['operator_count'] ?> opérateur(s) actif(s)<br><?= (int)$t['device_count'] ?> téléphone(s)</td>
         <td class="small"><?= (int)$t['count_paid'] ?> paiements<br><strong><?= h(fmt_amount($t['total_paid'])) ?></strong></td>
         <td>
@@ -28,7 +35,7 @@
         </td>
       </tr>
     <?php endforeach; ?>
-    <?php if (!$tenants): ?><tr><td colspan="6" class="muted">Aucune inscription pour l'instant.</td></tr><?php endif; ?>
+    <?php if (!$tenants): ?><tr><td colspan="7" class="muted">Aucune inscription pour l'instant.</td></tr><?php endif; ?>
   </table></div>
 </section>
 

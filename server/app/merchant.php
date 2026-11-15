@@ -75,6 +75,9 @@ function merchant_route(string $method, array $p): void
         case 'api':
             merchant_api($method, $m);
             return;
+        case 'subscription':
+            merchant_subscription($method, $m);
+            return;
         case 'settings':
             merchant_settings($method, $m);
             return;
@@ -245,4 +248,28 @@ function merchant_settings(string $method, array $m): void
         redirect('espace/settings');
     }
     admin_page('merchant_settings', 'Mon compte', ['m' => $m]);
+}
+
+function merchant_subscription(string $method, array $m): void
+{
+    if ($method === 'POST') {
+        $phone = trim((string)($_POST['payer_phone'] ?? ''));
+        if (phone_key($phone) === null) {
+            flash('Indiquez le numéro avec lequel vous allez payer.', 'err');
+            redirect('espace/subscription');
+        }
+        try {
+            $pay = subscription_create_payment($m, $phone);
+        } catch (InvalidArgumentException $e) {
+            flash('Paiement impossible pour le moment : ' . $e->getMessage(), 'err');
+            redirect('espace/subscription');
+        }
+        redirect('pay/' . $pay['reference']);
+    }
+    $m = q_one('SELECT * FROM merchants WHERE id = ?', [$m['id']]);
+    $history = q_all(
+        "SELECT * FROM payments WHERE merchant_id IS NULL AND external_ref = ? ORDER BY id DESC LIMIT 20",
+        ['ABO-' . $m['id']]
+    );
+    admin_page('merchant_subscription', 'Abonnement', ['m' => $m, 'history' => $history]);
 }

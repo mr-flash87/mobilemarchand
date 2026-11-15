@@ -24,6 +24,7 @@ require APP_DIR . '/db.php';
 require APP_DIR . '/settings.php';
 require APP_DIR . '/sms_parser.php';
 require APP_DIR . '/operators.php';
+require APP_DIR . '/subscription.php';
 require APP_DIR . '/payments.php';
 require APP_DIR . '/webhooks.php';
 require APP_DIR . '/webpush.php';

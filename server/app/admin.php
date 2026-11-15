@@ -314,6 +314,18 @@ function admin_merchants(string $method, array $p): void
             aredirect('merchants');
         }
         $m = q_one('SELECT * FROM merchants WHERE id = ?', [(int)($_POST['id'] ?? 0)]);
+        if ($m && ($m['kind'] ?? '') === 'tenant' && $a === 'gift') {
+            $days = max(1, min(366, (int)($_POST['days'] ?? subscription_days())));
+            $until = subscription_extend((int)$m['id'], $days);
+            push_notify('🎁 Abonnement offert', "$days jours ajoutés : actif jusqu'au " . fmt_dt($until) . '.', 'subscription', 'gift-' . $m['id'], (int)$m['id']);
+            flash("$days jours offerts à « {$m['name']} » : abonnement actif jusqu'au " . fmt_dt($until) . '.');
+            aredirect('merchants');
+        }
+        if ($m && ($m['kind'] ?? '') === 'tenant' && $a === 'end_sub') {
+            db_update('merchants', ['paid_until' => now()], 'id = :id', ['id' => $m['id']]);
+            flash('Abonnement de « ' . $m['name'] . ' » arrêté.');
+            aredirect('merchants');
+        }
         if ($m && ($m['kind'] ?? '') === 'tenant' && in_array($a, ['approve', 'suspend', 'reactivate'], true)) {
             if ($a === 'approve' || $a === 'reactivate') {
                 db_update('merchants', ['status' => 'active', 'active' => 1], 'id = :id', ['id' => $m['id']]);
@@ -471,6 +483,12 @@ function admin_settings(string $method): void
             }
             setting_set('match_amount_only', !empty($_POST['match_amount_only']) ? '1' : '0');
             setting_set('balance_check', !empty($_POST['balance_check']) ? '1' : '0');
+            setting_set('subscription_enabled', !empty($_POST['subscription_enabled']) ? '1' : '0');
+            foreach (['subscription_price', 'subscription_days'] as $f) {
+                if (isset($_POST[$f]) && (int)$_POST[$f] > 0) {
+                    setting_set($f, (string)(int)$_POST[$f]);
+                }
+            }
             if (!in_array((string)setting('timezone'), DateTimeZone::listIdentifiers(), true)) {
                 setting_set('timezone', 'Africa/Ouagadougou');
             }

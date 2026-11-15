@@ -51,6 +51,8 @@ function api_merchant(string $method, array $parts): never
         if ($method === 'POST' && $ref === null) {
             try {
                 $p = payment_create(json_input(), $merchant);
+            } catch (SubscriptionRequired $e) {
+                json_error('subscription_required', $e->getMessage(), 402);
             } catch (InvalidArgumentException $e) {
                 json_error('invalid_request', $e->getMessage(), 422);
             }

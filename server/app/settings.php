@@ -23,6 +23,10 @@ function setting_defaults(): array
         'support_whatsapp' => '',
         'sms_rules' => json_encode(default_sms_rules(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         'cron_key' => '',
+        // Abonnement des marchands inscrits (payé sur les numéros de la plateforme)
+        'subscription_enabled' => '1',
+        'subscription_price' => '10000',
+        'subscription_days' => '30',
     ];
 }
 

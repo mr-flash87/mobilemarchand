@@ -13,6 +13,14 @@
     <div><label>Fuseau horaire</label><input type="text" name="timezone" value="<?= h(setting('timezone')) ?>"></div>
     <div><label>WhatsApp du support (avec indicatif)</label><input type="tel" name="support_whatsapp" value="<?= h(setting('support_whatsapp')) ?>" placeholder="22670000000"></div>
   </div>
+  <h2 style="margin-top:18px">Abonnement des marchands inscrits</h2>
+  <p class="small muted">Payé par les marchands de l'espace marchand sur <strong>vos</strong> numéros (vos opérateurs ci-dessus). Sans abonnement actif, ils ne peuvent pas encaisser.</p>
+  <label class="check"><input type="checkbox" name="subscription_enabled" value="1" <?= setting('subscription_enabled') === '1' ? 'checked' : '' ?>>
+    <span>Exiger un abonnement payant</span></label>
+  <div class="grid g2">
+    <div><label>Prix de l'abonnement (F CFA)</label><input type="number" name="subscription_price" value="<?= h(setting('subscription_price')) ?>" min="1"></div>
+    <div><label>Durée (jours)</label><input type="number" name="subscription_days" value="<?= h(setting('subscription_days')) ?>" min="1"></div>
+  </div>
   <h2 style="margin-top:18px">Sécurité du rapprochement</h2>
   <label class="check"><input type="checkbox" name="balance_check" value="1" <?= setting('balance_check') === '1' ? 'checked' : '' ?>>
     <span><strong>Contrôle du solde (recommandé)</strong> : si le nouveau solde du SMS n'est pas égal à l'ancien solde + le montant, le SMS est mis « À vérifier » au lieu de valider le paiement. Cela bloque la plupart des faux SMS.</span></label>
