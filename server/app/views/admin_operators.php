@@ -35,8 +35,20 @@
       <div><label>Numéro marchand (qui reçoit l'argent)</label><input type="tel" name="merchant_number" value="<?= h($o['merchant_number']) ?>" placeholder="Ex. 70000000"></div>
       <div style="grid-column:1/-1"><label>Codes USSD (un par ligne : <code>Libellé | code</code>)</label>
         <textarea name="ussd_codes" rows="2" style="min-height:64px" placeholder="Ex. Transfert | *XXX*{number}*{amount}#"><?= h($o['ussd_codes']) ?></textarea>
-        <?php $prev = operator_ussd_options($o, 5000); if ($prev): ?>
-          <span class="small muted">Aperçu 5 000 F : <?php foreach ($prev as $p): ?><code><?= h($p['label'] . ' : ' . $p['code']) ?></code> <?php endforeach; ?></span>
+        <?php $all = operator_ussd_options($o, 5000, true); $sel = isset($all[(int)$o['ussd_primary']]) ? (int)$o['ussd_primary'] : 0; ?>
+        <?php if (count($all) > 1): ?>
+          <div class="ussd-pick">
+            <div class="small" style="font-weight:600;margin:8px 0 6px">Code à faire utiliser par les clients :</div>
+            <?php foreach ($all as $k => $u): ?>
+              <label class="ussd-choice"><input type="radio" name="ussd_primary" value="<?= $k ?>" <?= $k === $sel ? 'checked' : '' ?>>
+                <span><strong><?= h($u['label']) ?></strong> <code><?= h($u['code']) ?></code></span></label>
+            <?php endforeach; ?>
+            <label class="check small" style="margin-top:6px"><input type="checkbox" name="ussd_show_alt" value="1" <?= (int)$o['ussd_show_alt'] ? 'checked' : '' ?>>
+              <span>Proposer aussi les autres codes en secours (« Le code ne marche pas ? »)</span></label>
+          </div>
+        <?php elseif ($all): ?>
+          <input type="hidden" name="ussd_primary" value="0">
+          <span class="small muted">Aperçu 5 000 F : <code><?= h($all[0]['code']) ?></code></span>
         <?php endif; ?></div>
       <div><label>Lien de paiement (optionnel, ex. Wave)</label><input type="url" name="pay_link" value="<?= h($o['pay_link']) ?>" placeholder="https://pay.wave.com/m/…/?amount={amount}"></div>
       <div><label>Expéditeur des SMS (motif)</label><input type="text" name="sms_sender" value="<?= h($o['sms_sender']) ?>" placeholder="Ex. orange|^OM$"></div>

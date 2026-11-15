@@ -511,6 +511,8 @@ function admin_operators(string $method): void
                 'sms_sender' => mb_substr(trim((string)($_POST['sms_sender'] ?? '')), 0, 255),
                 'instructions' => trim((string)($_POST['instructions'] ?? '')),
                 'active' => !empty($_POST['active']) ? 1 : 0,
+                'ussd_primary' => max(0, (int)($_POST['ussd_primary'] ?? 0)),
+                'ussd_show_alt' => !empty($_POST['ussd_show_alt']) ? 1 : 0,
             ];
         };
         $check = function (array $f): ?string {

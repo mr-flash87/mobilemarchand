@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -261,6 +261,11 @@ function db_migrate(): void
             device_set_balance((int)$d['id'], $first, (float)$d['last_balance']);
         }
         sms_rules_add_missing_defaults();
+    }
+    if ($v < 4) {
+        db_add_column('operators', 'ussd_primary', 'INT NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0');
+        db_add_column('operators', 'ussd_show_alt', 'SMALLINT NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0');
+        operators_reset_cache();
     }
     setting_set('schema_version', (string)SCHEMA_VERSION);
 }

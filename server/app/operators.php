@@ -99,12 +99,26 @@ function operator_ussd_templates(array $op): array
 }
 
 /** @return array<int, array{label:string, code:string, link:string}> */
-function operator_ussd_options(array $op, float $amount): array
+function operator_ussd_options(array $op, float $amount, bool $all = false): array
 {
-    return array_map(function ($t) use ($op, $amount) {
+    $list = array_map(function ($t) use ($op, $amount) {
         $code = operator_fill($op, $t['template'], $amount);
         return ['label' => $t['label'], 'code' => $code, 'link' => ussd_link($code)];
     }, operator_ussd_templates($op));
+    if ($all || !$list) {
+        return $list;
+    }
+    // Code choisi par l'administrateur en premier.
+    $i = (int)($op['ussd_primary'] ?? 0);
+    if (!isset($list[$i])) {
+        $i = 0;
+    }
+    $chosen = $list[$i];
+    if (empty($op['ussd_show_alt'])) {
+        return [$chosen]; // un seul code affiché aux clients
+    }
+    unset($list[$i]);
+    return array_merge([$chosen], array_values($list));
 }
 
 function operator_pay_link(array $op, float $amount): ?string
