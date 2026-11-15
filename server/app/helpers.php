@@ -183,19 +183,53 @@ function view(string $name, array $vars = []): void
     require APP_DIR . '/views/' . $name . '.php';
 }
 
+/** Durée de connexion à l'espace admin (renouvelée à chaque visite). */
+const SESSION_LIFETIME = 30 * 86400;
+
 function start_session(): void
 {
     if (session_status() === PHP_SESSION_ACTIVE) {
         return;
     }
-    session_name('smspay_admin');
-    session_set_cookie_params([
+    // Sessions rangées dans le dossier de l'application : l'hébergeur ne les efface pas au bout de 24 minutes.
+    $dir = APP_ROOT . '/data/sessions';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0700, true);
+        @file_put_contents(APP_ROOT . '/data/.htaccess', "Require all denied\nDeny from all\n");
+    }
+    if (is_dir($dir) && is_writable($dir)) {
+        session_save_path($dir);
+        if (random_int(1, 100) === 1) { // ménage occasionnel des vieilles sessions
+            foreach (glob($dir . '/sess_*') ?: [] as $f) {
+                if (@filemtime($f) < time() - SESSION_LIFETIME) {
+                    @unlink($f);
+                }
+            }
+        }
+    }
+    ini_set('session.gc_maxlifetime', (string)SESSION_LIFETIME);
+    ini_set('session.use_strict_mode', '1');
+    $secure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    $params = [
+        'lifetime' => SESSION_LIFETIME,
         'httponly' => true,
         'samesite' => 'Lax',
-        'secure' => !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off',
+        'secure' => $secure,
         'path' => base_path() === '' ? '/' : base_path() . '/',
-    ]);
+    ];
+    session_name('smspay_admin');
+    session_set_cookie_params($params);
     session_start();
+    // Prolonge la connexion à chaque visite (30 jours après la dernière utilisation).
+    if (!headers_sent() && !empty($_SESSION['uid'])) {
+        setcookie(session_name(), session_id(), [
+            'expires' => time() + SESSION_LIFETIME,
+            'path' => $params['path'],
+            'httponly' => true,
+            'samesite' => 'Lax',
+            'secure' => $secure,
+        ]);
+    }
 }
 
 function csrf_token(): string
