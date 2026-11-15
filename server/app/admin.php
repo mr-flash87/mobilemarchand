@@ -453,7 +453,7 @@ function admin_simulate(string $method): void
     $result = null;
     if ($method === 'POST') {
         $device = !empty($_POST['device_id']) ? q_one('SELECT * FROM devices WHERE id = ?', [(int)$_POST['device_id']]) : null;
-        $result = sms_ingest($device, (string)($_POST['sender'] ?? ''), (string)($_POST['body'] ?? ''), (int)(microtime(true) * 1000));
+        $result = sms_ingest($device, (string)($_POST['sender'] ?? ''), (string)($_POST['body'] ?? ''), (int)(microtime(true) * 1000), ($_POST['source'] ?? '') === 'notification' ? 'notification' : 'sms');
     }
     $devices = q_all('SELECT id, name FROM devices WHERE active = 1');
     $pending = q_all("SELECT * FROM payments WHERE status = 'pending' ORDER BY id DESC LIMIT 10");
@@ -509,6 +509,7 @@ function admin_operators(string $method): void
                 'ussd_codes' => trim((string)($_POST['ussd_codes'] ?? '')),
                 'pay_link' => mb_substr(trim((string)($_POST['pay_link'] ?? '')), 0, 500),
                 'sms_sender' => mb_substr(trim((string)($_POST['sms_sender'] ?? '')), 0, 255),
+                'app_package' => mb_substr(trim((string)($_POST['app_package'] ?? '')), 0, 255),
                 'instructions' => trim((string)($_POST['instructions'] ?? '')),
                 'active' => !empty($_POST['active']) ? 1 : 0,
                 'ussd_primary' => max(0, (int)($_POST['ussd_primary'] ?? 0)),
@@ -521,6 +522,9 @@ function admin_operators(string $method): void
             }
             if ($f['sms_sender'] !== '' && !rx_valid($f['sms_sender'])) {
                 return 'Expéditeur SMS : expression invalide.';
+            }
+            if ($f['app_package'] !== '' && !rx_valid($f['app_package'])) {
+                return 'Application (notifications) : expression invalide.';
             }
             if ($f['pay_link'] !== '' && !preg_match('#^https?://#', $f['pay_link'])) {
                 return 'Le lien de paiement doit commencer par https://';

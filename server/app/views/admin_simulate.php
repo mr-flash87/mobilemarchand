@@ -13,6 +13,8 @@
     <label>Téléphone (pour le contrôle du solde)</label>
     <select name="device_id"><option value="">Aucun (pas de contrôle du solde)</option>
       <?php foreach ($devices as $d): ?><option value="<?= (int)$d['id'] ?>"><?= h($d['name']) ?></option><?php endforeach; ?></select>
+    <label>Type de message</label>
+    <select name="source"><option value="sms">SMS</option><option value="notification">Notification d'application (ex. Wave)</option></select>
     <label>Expéditeur</label><input type="text" name="sender" id="sim-sender" value="OrangeMoney">
     <label>Texte du SMS</label><textarea name="body" id="sim-body" rows="5" required></textarea>
     <p></p><button class="btn primary">Envoyer le SMS simulé</button>

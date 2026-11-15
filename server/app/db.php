@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -265,6 +265,13 @@ function db_migrate(): void
     if ($v < 4) {
         db_add_column('operators', 'ussd_primary', 'INT NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0');
         db_add_column('operators', 'ussd_show_alt', 'SMALLINT NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0');
+        operators_reset_cache();
+    }
+    if ($v < 5) {
+        db_add_column('operators', 'app_package', 'VARCHAR(255) NULL', 'TEXT NULL');
+        db_add_column('sms_messages', 'source', 'VARCHAR(20) NULL', 'TEXT NULL');
+        // Wave prévient surtout par notification de son application.
+        q("UPDATE operators SET app_package = ? WHERE code = 'wave' AND (app_package IS NULL OR app_package = '')", ['^com\\.wave\\.']);
         operators_reset_cache();
     }
     setting_set('schema_version', (string)SCHEMA_VERSION);

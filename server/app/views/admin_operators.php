@@ -52,6 +52,8 @@
         <?php endif; ?></div>
       <div><label>Lien de paiement (optionnel, ex. Wave)</label><input type="url" name="pay_link" value="<?= h($o['pay_link']) ?>" placeholder="https://pay.wave.com/m/…/?amount={amount}"></div>
       <div><label>Expéditeur des SMS (motif)</label><input type="text" name="sms_sender" value="<?= h($o['sms_sender']) ?>" placeholder="Ex. orange|^OM$"></div>
+      <div><label>Lire aussi les notifications de l'application (paquet Android)</label><input type="text" name="app_package" value="<?= h($o['app_package'] ?? '') ?>" placeholder="Ex. ^com\.wave\.">
+        <span class="small muted">Laisser vide si l'opérateur prévient par SMS. Pour Wave : <code>^com\.wave\.</code></span></div>
       <div><label>Couleur</label><input type="color" name="color" value="<?= h($o['color'] ?: '#0b5fff') ?>" class="op-color"></div>
       <div style="grid-column:1/-1"><label>Instructions affichées au client (optionnel)</label>
         <textarea name="instructions" rows="2" style="min-height:56px;font-family:inherit"><?= h($o['instructions']) ?></textarea></div>
@@ -73,6 +75,7 @@
     <div><label>Code court (lettres, sans espace)</label><input type="text" name="code" placeholder="Ex. sank"></div>
     <div><label>Numéro marchand</label><input type="tel" name="merchant_number"></div>
     <div><label>Expéditeur des SMS (motif)</label><input type="text" name="sms_sender" placeholder="Ex. sank"></div>
+    <div><label>Notifications de l'application (paquet Android, optionnel)</label><input type="text" name="app_package" placeholder="Ex. ^com\.exemple\."></div>
     <div style="grid-column:1/-1"><label>Codes USSD (un par ligne : <code>Libellé | code</code>)</label>
       <textarea name="ussd_codes" rows="2" style="min-height:64px"></textarea></div>
     <div><label>Lien de paiement (optionnel)</label><input type="url" name="pay_link"></div>

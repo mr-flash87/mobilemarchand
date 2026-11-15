@@ -14,7 +14,7 @@
     <?php foreach ($rows as $s): ?>
       <tr>
         <td class="small muted"><?= h(fmt_dt($s['received_at'])) ?><br>#<?= (int)$s['id'] ?></td>
-        <td><strong class="small"><?= h($s['sender']) ?></strong><div class="sms-body"><?= h($s['body']) ?></div></td>
+        <td><strong class="small"><?= h($s['sender']) ?></strong><?php if (($s['source'] ?? '') === 'notification'): ?> <span class="badge">🔔 notification</span><?php endif; ?><div class="sms-body"><?= h($s['body']) ?></div></td>
         <td class="small">
           <?php if ($s['amount'] !== null): ?>Montant : <strong><?= h(fmt_amount($s['amount'])) ?></strong><br><?php endif; ?>
           <?php if ($s['phone']): ?>De : <?= h($s['phone']) ?><br><?php endif; ?>

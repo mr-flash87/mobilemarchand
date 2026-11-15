@@ -47,8 +47,15 @@ object Api {
 
     private fun applyConfig(store: Store, json: JSONObject) {
         val cfg = json.optJSONObject("config") ?: return
-        val arr = cfg.optJSONArray("allowed_senders") ?: return
-        store.allowedSenders = List(arr.length()) { arr.getString(it) }
+        cfg.optJSONArray("allowed_senders")?.let { arr ->
+            store.allowedSenders = List(arr.length()) { arr.getString(it) }
+        }
+        cfg.optJSONArray("notification_apps")?.let { arr ->
+            store.notificationApps = List(arr.length()) {
+                val o = arr.getJSONObject(it)
+                NotifApp(o.getString("package"), o.optString("sender", "App"))
+            }
+        }
     }
 
     fun pair(store: Store, serverUrl: String, code: String) {
@@ -74,7 +81,7 @@ object Api {
             if (batch.isEmpty()) break
             val messages = JSONArray()
             batch.forEach {
-                messages.put(JSONObject().put("client_id", it.id).put("sender", it.sender).put("body", it.body).put("timestamp", it.timestamp))
+                messages.put(JSONObject().put("client_id", it.id).put("sender", it.sender).put("body", it.body).put("timestamp", it.timestamp).put("source", it.source))
             }
             val res = post("${store.serverUrl}/api/device/sms", store.token, deviceInfo(context).put("messages", messages))
             val results = res.optJSONArray("results") ?: JSONArray()

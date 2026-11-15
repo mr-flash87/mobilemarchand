@@ -10,25 +10,34 @@ import java.util.Date
 import java.util.Locale
 import java.util.regex.Pattern
 
-data class QueuedSms(val id: Long, val sender: String, val body: String, val timestamp: Long)
+data class QueuedSms(val id: Long, val sender: String, val body: String, val timestamp: Long, val source: String = "sms")
+
+/** Application dont on lit les notifications (ex. Wave) : motif du nom de paquet + nom envoyé comme expéditeur. */
+data class NotifApp(val packagePattern: String, val sender: String)
 
 data class LogEntry(val timestamp: Long, val line: String)
 
 /** Réglages + file d'attente locale des SMS à envoyer (survit aux redémarrages et coupures réseau). */
 class Store private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "gateway.db", null, 1) {
+    SQLiteOpenHelper(context.applicationContext, "gateway.db", null, 2) {
 
     private val prefs = context.applicationContext.getSharedPreferences("gateway", Context.MODE_PRIVATE)
 
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             "CREATE TABLE queue (id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, body TEXT NOT NULL, " +
-                "ts INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, UNIQUE(sender, body, ts))"
+                "ts INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, source TEXT NOT NULL DEFAULT 'sms', UNIQUE(sender, body, ts))"
         )
         db.execSQL("CREATE TABLE log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, line TEXT NOT NULL)")
+        db.execSQL("CREATE TABLE seen (hash TEXT PRIMARY KEY, ts INTEGER NOT NULL)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {}
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE queue ADD COLUMN source TEXT NOT NULL DEFAULT 'sms'")
+            db.execSQL("CREATE TABLE IF NOT EXISTS seen (hash TEXT PRIMARY KEY, ts INTEGER NOT NULL)")
+        }
+    }
 
     // ---- Réglages ----
     var serverUrl: String
@@ -64,6 +73,43 @@ class Store private constructor(context: Context) :
         }
         set(v) = prefs.edit().putString("allowed_senders", JSONArray(v).toString()).apply()
 
+    /** Applications dont on transmet les notifications de paiement (configuré depuis le site). */
+    var notificationApps: List<NotifApp>
+        get() {
+            val raw = prefs.getString("notification_apps", null) ?: return DEFAULT_NOTIF_APPS
+            return try {
+                val arr = JSONArray(raw)
+                List(arr.length()) {
+                    val o = arr.getJSONObject(it)
+                    NotifApp(o.getString("package"), o.optString("sender", "App"))
+                }
+            } catch (e: Exception) {
+                DEFAULT_NOTIF_APPS
+            }
+        }
+        set(v) {
+            val arr = JSONArray()
+            v.forEach { arr.put(org.json.JSONObject().put("package", it.packagePattern).put("sender", it.sender)) }
+            prefs.edit().putString("notification_apps", arr.toString()).apply()
+        }
+
+    fun notifAppFor(packageName: String): NotifApp? = notificationApps.firstOrNull { app ->
+        try {
+            Pattern.compile(app.packagePattern, Pattern.CASE_INSENSITIVE).matcher(packageName).find()
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Anti-doublon : une même notification mise à jour plusieurs fois n'est transmise qu'une fois (fenêtre 30 min). */
+    fun markSeen(hash: String): Boolean {
+        val now = System.currentTimeMillis()
+        val db = writableDatabase
+        db.execSQL("DELETE FROM seen WHERE ts < ?", arrayOf<Any>(now - 30 * 60 * 1000L))
+        val cv = ContentValues().apply { put("hash", hash); put("ts", now) }
+        return db.insertWithOnConflict("seen", null, cv, SQLiteDatabase.CONFLICT_IGNORE) != -1L
+    }
+
     val isPaired: Boolean get() = serverUrl.isNotEmpty() && token.isNotEmpty()
 
     fun isAllowedSender(sender: String): Boolean = allowedSenders.any { rx ->
@@ -75,19 +121,20 @@ class Store private constructor(context: Context) :
     }
 
     // ---- File d'attente ----
-    fun enqueue(sender: String, body: String, timestamp: Long): Boolean {
+    fun enqueue(sender: String, body: String, timestamp: Long, source: String = "sms"): Boolean {
         val cv = ContentValues().apply {
             put("sender", sender)
             put("body", body)
             put("ts", timestamp)
+            put("source", source)
         }
         return writableDatabase.insertWithOnConflict("queue", null, cv, SQLiteDatabase.CONFLICT_IGNORE) != -1L
     }
 
     fun pending(limit: Int = 50): List<QueuedSms> {
         val out = mutableListOf<QueuedSms>()
-        readableDatabase.rawQuery("SELECT id, sender, body, ts FROM queue ORDER BY id LIMIT $limit", null).use { c ->
-            while (c.moveToNext()) out += QueuedSms(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3))
+        readableDatabase.rawQuery("SELECT id, sender, body, ts, source FROM queue ORDER BY id LIMIT $limit", null).use { c ->
+            while (c.moveToNext()) out += QueuedSms(c.getLong(0), c.getString(1), c.getString(2), c.getLong(3), c.getString(4) ?: "sms")
         }
         return out
     }
@@ -138,6 +185,7 @@ class Store private constructor(context: Context) :
 
     companion object {
         val DEFAULT_SENDERS = listOf("orange|^OM$", "moov|flooz")
+        val DEFAULT_NOTIF_APPS = listOf(NotifApp("^com\\.wave\\.", "Wave"))
 
         @Volatile private var instance: Store? = null
         fun get(context: Context): Store = instance ?: synchronized(this) {

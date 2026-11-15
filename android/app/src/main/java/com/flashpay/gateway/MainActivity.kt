@@ -108,6 +108,7 @@ data class UiState(
     val smsPermission: Boolean = false,
     val notifPermission: Boolean = true,
     val batteryOk: Boolean = false,
+    val notifAccess: Boolean = false,
     val serviceOn: Boolean = false,
     val entries: List<LogEntry> = emptyList(),
 )
@@ -142,6 +143,7 @@ class MainActivity : ComponentActivity() {
             smsPermission = has(Manifest.permission.RECEIVE_SMS),
             notifPermission = Build.VERSION.SDK_INT < 33 || has(Manifest.permission.POST_NOTIFICATIONS),
             batteryOk = pm.isIgnoringBatteryOptimizations(packageName),
+            notifAccess = PaymentNotificationListener.isEnabled(this),
             serviceOn = GatewayService.running,
             entries = store.recentEntries(40),
         )
@@ -159,6 +161,14 @@ class MainActivity : ComponentActivity() {
             startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
         } catch (e: Exception) {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }
+
+    fun openNotificationAccess() {
+        try {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        } catch (e: Exception) {
+            openAppSettings()
         }
     }
 
@@ -554,11 +564,19 @@ private fun ChecklistCard(activity: MainActivity, state: UiState, askPermissions
         CardTitle("Réglages du téléphone")
         CheckRow(Icons.Filled.Email, "Réception des SMS", "Indispensable pour lire les confirmations", state.smsPermission, "Autoriser", onClick = askPermissions)
         CheckRow(Icons.Filled.Notifications, "Notifications", "Affiche l'état de la passerelle", state.notifPermission, "Autoriser", onClick = askPermissions)
+        CheckRow(Icons.Filled.Notifications, "Lecture des notifications (Wave)", "Pour les paiements annoncés par notification", state.notifAccess, "Autoriser") { activity.openNotificationAccess() }
         CheckRow(Icons.Filled.Lock, "Fonctionnement en continu", "Désactive l'économie de batterie pour l'app", state.batteryOk, "Régler") { activity.openBatterySettings() }
         if (state.paired) {
             CheckRow(Icons.Filled.Settings, "Service de la passerelle", "Tourne en arrière-plan en permanence", state.serviceOn, "Démarrer", last = true) { activity.startGateway() }
         }
         Spacer(Modifier.height(6.dp))
+        if (!state.notifAccess) {
+            Text(
+                "Pour Wave : touchez « Autoriser », puis activez « Passerelle Pay » dans la liste « Accès aux notifications ».",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
         Notice(
             "Gardez le téléphone branché et connecté à Internet. Sur Tecno, Infinix, itel ou Xiaomi, activez aussi « Démarrage automatique ».",
             MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.surfaceVariant, Icons.Filled.Info
@@ -632,7 +650,7 @@ private fun PrivacyNote() {
         Icon(Icons.Filled.Lock, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
         Spacer(Modifier.width(8.dp))
         Text(
-            "Seuls les SMS des opérateurs Mobile Money sont transmis. Vos SMS personnels restent sur le téléphone.",
+            "Seuls les SMS des opérateurs et les notifications des applications de paiement (ex. Wave) sont transmis. Le reste ne quitte jamais le téléphone.",
             color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp
         )
     }

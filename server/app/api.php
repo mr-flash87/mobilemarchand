@@ -135,8 +135,16 @@ function device_config(): array
             $senders[] = $o['sms_sender'];
         }
     }
+    // Applications dont on lit les notifications (ex. Wave) : motif du nom de paquet -> nom de l'opérateur.
+    $apps = [];
+    foreach (operators(true) as $o) {
+        if (trim((string)($o['app_package'] ?? '')) !== '') {
+            $apps[] = ['package' => $o['app_package'], 'sender' => $o['name']];
+        }
+    }
     return [
         'allowed_senders' => array_values(array_unique($senders)),
+        'notification_apps' => $apps,
         'heartbeat_seconds' => 120,
         'server_time' => time(),
         'app_name' => app_name(),
@@ -202,7 +210,8 @@ function api_device(string $method, array $parts): never
             }
             // recharger le téléphone pour avoir le dernier solde connu
             $device = q_one('SELECT * FROM devices WHERE id = ?', [$device['id']]);
-            $r = sms_ingest($device, (string)$m['sender'], (string)$m['body'], isset($m['timestamp']) ? (int)$m['timestamp'] : null);
+            $source = ($m['source'] ?? 'sms') === 'notification' ? 'notification' : 'sms';
+            $r = sms_ingest($device, (string)$m['sender'], (string)$m['body'], isset($m['timestamp']) ? (int)$m['timestamp'] : null, $source);
             $r['client_id'] = $m['client_id'] ?? null;
             $results[] = $r;
         }

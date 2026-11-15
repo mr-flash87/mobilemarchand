@@ -218,7 +218,7 @@ function payment_match_for(float $amount, ?string $phone): ?array
  * Enregistre un SMS reçu par un téléphone et tente de le rapprocher d'un paiement.
  * Retourne ['id' => ..., 'status' => ..., 'payment' => reference|null]
  */
-function sms_ingest(?array $device, string $sender, string $body, ?int $receivedAtMs = null): array
+function sms_ingest(?array $device, string $sender, string $body, ?int $receivedAtMs = null, string $source = 'sms'): array
 {
     $sender = mb_substr(trim($sender), 0, 60);
     $body = trim($body);
@@ -244,6 +244,7 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         'txn_id' => $parsed['txn'] ?? null,
         'balance' => $parsed['balance'] ?? null,
         'operator' => $parsed['operator'] ?? (operator_for_sender($sender)['code'] ?? null),
+        'source' => $source === 'notification' ? 'notification' : 'sms',
         'status' => 'ignored',
         'note' => null,
         'created_at' => now(),
