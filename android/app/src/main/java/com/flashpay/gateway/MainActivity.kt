@@ -572,7 +572,8 @@ private fun ChecklistCard(activity: MainActivity, state: UiState, askPermissions
         Spacer(Modifier.height(6.dp))
         if (!state.notifAccess) {
             Text(
-                "Pour Wave : touchez « Autoriser », puis activez « Passerelle Pay » dans la liste « Accès aux notifications ».",
+                "Pour Wave : touchez « Autoriser », puis activez « Passerelle Pay » dans « Accès aux notifications ».\n" +
+                    "Si l'interrupteur est grisé (« Paramètre restreint ») : Paramètres → Applications → Passerelle Pay → menu ⋮ en haut à droite → « Autoriser les paramètres restreints », puis recommencez.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
                 modifier = Modifier.padding(bottom = 8.dp)
             )

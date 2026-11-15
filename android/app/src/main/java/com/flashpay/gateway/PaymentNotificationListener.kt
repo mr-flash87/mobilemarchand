@@ -15,6 +15,15 @@ import java.security.MessageDigest
  */
 class PaymentNotificationListener : NotificationListenerService() {
 
+    override fun onListenerConnected() {
+        connected = true
+        Store.get(this).log("🔔 Lecture des notifications active")
+    }
+
+    override fun onListenerDisconnected() {
+        connected = false
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
         val store = Store.get(this)
@@ -26,10 +35,12 @@ class PaymentNotificationListener : NotificationListenerService() {
         if (n.flags and Notification.FLAG_ONGOING_EVENT != 0) return
 
         val text = extractText(n)
-        if (text.isBlank()) return
-        // Seules les notifications qui parlent d'argent reçu nous intéressent.
-        if (!MONEY.containsMatchIn(text)) return
-
+        if (text.isBlank()) {
+            store.log("ℹ️ Notification ${app.sender} vide (ignorée)")
+            return
+        }
+        // Toutes les notifications de l'application surveillée sont transmises :
+        // le site reconnaît lui-même celles qui annoncent un paiement reçu.
         if (!store.markSeen(sha1(sbn.packageName + "|" + text))) return
         if (store.enqueue(app.sender, text, sbn.postTime, "notification")) {
             store.log("📩 Notification ${app.sender} reçue")
@@ -51,7 +62,7 @@ class PaymentNotificationListener : NotificationListenerService() {
         MessageDigest.getInstance("SHA-1").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
 
     companion object {
-        private val MONEY = Regex("(re[çc]u|recu|received|cr[ée]dit|paiement|payment)", RegexOption.IGNORE_CASE)
+        @Volatile var connected = false
 
         /** L'utilisateur a-t-il autorisé la lecture des notifications pour cette application ? */
         fun isEnabled(context: Context): Boolean {

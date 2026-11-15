@@ -201,7 +201,7 @@ function payments_expire(): int
 }
 
 /** Cherche le paiement en attente correspondant à un SMS reçu. */
-function payment_match_for(float $amount, ?string $phone, ?int $scope = null): ?array
+function payment_match_for(float $amount, ?string $phone, ?int $scope = null, bool $amountOnly = false): ?array
 {
     $key = phone_key($phone);
     if ($key !== null) {
@@ -212,7 +212,7 @@ function payment_match_for(float $amount, ?string $phone, ?int $scope = null): ?
             $params
         );
     }
-    if (setting('match_amount_only') === '1') {
+    if ($amountOnly || setting('match_amount_only') === '1') {
         $params = [$amount, now()];
         $sc = payments_scope_sql($scope, $params);
         $rows = q_all(
@@ -305,7 +305,9 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         }
     }
 
-    $payment = payment_match_for((float)$parsed['amount'], $parsed['phone'], $scope);
+    // Une notification d'application (ex. Wave) est fiable mais ne donne pas toujours le numéro :
+    // on accepte alors le montant seul s'il n'y a qu'un seul paiement en attente de ce montant.
+    $payment = payment_match_for((float)$parsed['amount'], $parsed['phone'], $scope, $source === 'notification');
 
     if ($suspect !== null) {
         $row['status'] = 'review';
