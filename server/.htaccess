@@ -13,6 +13,6 @@ DirectoryIndex index.php
   RewriteRule ^ index.php [QSA,L]
 </IfModule>
 
-<FilesMatch "^(config\.php|cron\.php)$">
+<FilesMatch "^(config\.php|cron\.php|\.ftp-deploy.*)$">
   Require all denied
 </FilesMatch>
