@@ -168,6 +168,9 @@ function merchant_login(string $method): void
                 $_SESSION['mid'] = (int)$m['id'];
                 redirect('espace');
             }
+        } elseif (q_val('SELECT COUNT(*) FROM users WHERE LOWER(email) = ?', [$email])) {
+            // L'administrateur s'est trompé de porte : on l'oriente vers son espace.
+            $error = 'admin';
         } else {
             $error = 'Email ou mot de passe incorrect.';
         }

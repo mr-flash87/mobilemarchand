@@ -25,7 +25,10 @@ view('_head', ['title' => $signup ? 'Créer un compte marchand' : 'Connexion mar
       <a class="lp-logo auth-logo-sm" href="<?= h(url('')) ?>"><span class="brand-mark"><?= icon('wallet', 18) ?></span><?= h(app_name()) ?></a>
       <h1><?= $signup ? 'Créer un compte' : 'Connexion' ?></h1>
       <p class="muted"><?= $signup ? 'Gratuit. Votre compte sera validé rapidement par notre équipe.' : 'Accédez à votre espace marchand.' ?></p>
-      <?php if (!empty($error)): ?><div class="alert err"><?= h($error) ?></div><?php endif; ?>
+      <?php if (($error ?? '') === 'admin'): ?>
+        <div class="alert warn">Cet email est celui d'un <strong>administrateur</strong>. Connectez-vous à l'espace administrateur :
+          <a class="btn sm primary" style="margin-top:8px" href="<?= h(url('admin/login')) ?>">Aller à l'administration</a></div>
+      <?php elseif (!empty($error)): ?><div class="alert err"><?= h($error) ?></div><?php endif; ?>
       <?php foreach (flash() as [$type, $msg]): ?><div class="alert <?= h($type) ?>"><?= h($msg) ?></div><?php endforeach; ?>
       <form method="post" autocomplete="on">
         <?= csrf_field() ?>
@@ -51,7 +54,7 @@ view('_head', ['title' => $signup ? 'Créer un compte marchand' : 'Connexion mar
       <p class="small muted auth-foot">
         <?php if ($signup): ?>Déjà inscrit ? <a href="<?= h(url('espace/connexion')) ?>">Se connecter</a>
         <?php else: ?>Pas encore de compte ? <a href="<?= h(url('espace/inscription')) ?>">Créer un compte gratuit</a><?php endif; ?>
-        <br><a href="<?= h(url('')) ?>">← Retour à l'accueil</a> · <a href="<?= h(url('docs')) ?>">Documentation API</a>
+        <br><a href="<?= h(url('')) ?>">← Retour à l'accueil</a> · <a href="<?= h(url('docs')) ?>">Documentation API</a><?php if (!$signup): ?> · <a href="<?= h(url('admin/login')) ?>">Espace administrateur</a><?php endif; ?>
       </p>
     </div>
   </main>
