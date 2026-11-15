@@ -13,6 +13,7 @@ on:
     branches: [main]
     paths:
       - "server/**"
+      - "server-root/**"
       - ".github/workflows/deploy-site.yml"
   workflow_dispatch:
 
@@ -60,3 +61,14 @@ jobs:
             config.php
             data/**
             install.php
+
+      - name: Page racine du domaine (redirection vers pay/)
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./server-root/
+          server-dir: public_html/
+          state-name: .ftp-deploy-root-state.json
