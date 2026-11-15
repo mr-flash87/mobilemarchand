@@ -1,0 +1,5 @@
+# Le fichier d'état du déploiement n'a pas à être public.
+<FilesMatch "^\.ftp-deploy">
+  Require all denied
+</FilesMatch>
+AddType application/vnd.android.package-archive .apk

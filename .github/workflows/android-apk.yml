@@ -30,3 +30,20 @@ jobs:
         with:
           name: smspay-gateway-apk
           path: android/smspay-gateway.apk
+      - name: Préparer l'APK pour le site
+        if: github.ref == 'refs/heads/main'
+        run: |
+          mkdir -p ../apk-out
+          cp smspay-gateway.apk ../apk-out/smspay-gateway.apk
+      # Met l'APK en téléchargement sur le site : <site>/pay/downloads/smspay-gateway.apk
+      - name: Publier l'APK sur le site
+        if: github.ref == 'refs/heads/main'
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./apk-out/
+          server-dir: pay/downloads/
+          state-name: .ftp-deploy-apk-state.json
