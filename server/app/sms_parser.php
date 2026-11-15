@@ -28,6 +28,8 @@ function default_sms_rules(): array
     ];
     $rules = [];
     foreach ($ops as [$code, $name, $sender]) {
+        // Wave termine ses messages par l'identifiant de transaction (ex. « TCT4QUYW5ZFEFASTN »).
+        $opTxn = $code === 'wave' ? '(?:\\b|\\s)([A-Z0-9]{12,})\\s*$' : $txn;
         $rules[] = [
             'name' => "$name - argent reçu",
             'operator' => $code,
@@ -37,7 +39,7 @@ function default_sms_rules(): array
             'exclude' => 'vous avez (envoy|pay|retir)|a [ée]t[ée] d[ée]bit',
             'amount' => $incomingAmount,
             'phone' => $phone,
-            'txn' => $txn,
+            'txn' => $opTxn,
             'balance' => $balance,
         ];
     }
@@ -71,6 +73,25 @@ function sms_rules_add_missing_defaults(): void
         }
     }
     setting_set('sms_rules', json_encode(array_merge($incoming, $outgoing), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
+/** Remplace, dans les règles personnalisées, les règles nommées par leur version par défaut à jour. */
+function sms_rules_upgrade_from_defaults(array $names): void
+{
+    $saved = json_decode((string)setting('sms_rules', ''), true);
+    if (!is_array($saved) || !$saved) {
+        return;
+    }
+    $defaults = [];
+    foreach (default_sms_rules() as $r) {
+        $defaults[$r['name']] = $r;
+    }
+    foreach ($saved as $i => $r) {
+        if (in_array($r['name'] ?? '', $names, true) && isset($defaults[$r['name']])) {
+            $saved[$i] = $defaults[$r['name']];
+        }
+    }
+    setting_set('sms_rules', json_encode($saved, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 }
 
 function sms_rules(): array

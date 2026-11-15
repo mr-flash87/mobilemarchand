@@ -18,6 +18,11 @@ class PaymentNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         connected = true
         Store.get(this).log("🔔 Lecture des notifications active")
+        // Relit les notifications déjà présentes (ex. un paiement Wave arrivé avant l'activation).
+        try {
+            activeNotifications?.forEach { onNotificationPosted(it) }
+        } catch (_: Exception) {
+        }
     }
 
     override fun onListenerDisconnected() {

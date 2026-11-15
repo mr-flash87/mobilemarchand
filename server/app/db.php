@@ -229,7 +229,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -292,6 +292,9 @@ function db_migrate(): void
     }
     if ($v < 8) {
         db_add_column('merchants', 'paid_until', 'DATETIME NULL', 'TEXT NULL');
+    }
+    if ($v < 9) {
+        sms_rules_upgrade_from_defaults(['Wave - argent reçu']);
     }
     // Opérateurs par défaut de la plateforme (une fois toutes les colonnes créées).
     operators_reset_cache();
