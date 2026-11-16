@@ -25,8 +25,9 @@ class SmsReceiver : BroadcastReceiver() {
             }
         }
         if (store.isPaired) {
-            Sync.now(context)
-            GatewayService.poke(context)
+            // goAsync : Android garde le récepteur en vie le temps de l'envoi (même écran éteint).
+            val pending = goAsync()
+            Sync.sendNow(context) { pending.finish() }
         }
     }
 }

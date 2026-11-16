@@ -74,7 +74,11 @@ object Api {
     }
 
     /** Envoie la file d'attente. Retourne le nombre de SMS transmis. */
-    fun flush(context: Context, store: Store): Int {
+    private val flushLock = Any()
+
+    fun flush(context: Context, store: Store): Int = synchronized(flushLock) { flushLocked(context, store) }
+
+    private fun flushLocked(context: Context, store: Store): Int {
         var sent = 0
         while (true) {
             val batch = store.pending(50)

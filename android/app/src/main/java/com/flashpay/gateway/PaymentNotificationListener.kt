@@ -49,8 +49,7 @@ class PaymentNotificationListener : NotificationListenerService() {
         if (!store.markSeen(sha1(sbn.packageName + "|" + text))) return
         if (store.enqueue(app.sender, text, sbn.postTime, "notification")) {
             store.log("📩 Notification ${app.sender} reçue")
-            Sync.now(this)
-            GatewayService.poke(this)
+            Sync.sendNow(this)
         }
     }
 
