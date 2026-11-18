@@ -1,4 +1,3 @@
-Envois Wave : le code à 4 chiffres demandé par Wave à l'ouverture est saisi automatiquement (enregistrez-le dans l'onglet Envois, ligne Wave).
-Les envois Wave n'ont plus besoin de l'autorisation « Appels ».
-Le site explique maintenant pourquoi un envoi reste « En file » (Wave pas activé, code manquant, accessibilité…).
+Envois Moov : la SIM Moov est reconnue même quand le téléphone l'appelle « Onatel » ou « Telmob ».
+En cas de doute sur la SIM, le message d'erreur affiche maintenant les noms des SIM du téléphone.
 Mise à jour directe par-dessus l'ancienne version.

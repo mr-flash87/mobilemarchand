@@ -104,6 +104,11 @@ object PayoutRunner {
     @Volatile private var steps = 0
     @Volatile private var latch: CountDownLatch? = null
 
+    private val SIM_ALIASES = mapOf(
+        "moov" to listOf("moov", "onatel", "telmob", "flooz"),
+        "orange" to listOf("orange"),
+        "telecel" to listOf("telecel"),
+    )
     private val PIN_RX = Regex("code\\s*secret|code\\s*pin|\\bpin\\b|mot\\s*de\\s*passe|password|secret", RegexOption.IGNORE_CASE)
     private val CONFIRM_RX = Regex("confirm|1\\s*[.:)\\-]?\\s*(oui|valider|accepter|confirmer)|tapez\\s*1", RegexOption.IGNORE_CASE)
     private val SEND_RX = Regex("^(envoyer|send|ok|r[ée]pondre|reply|valider|oui|confirmer|soumettre|submit)$", RegexOption.IGNORE_CASE)
@@ -181,11 +186,14 @@ object PayoutRunner {
                 val accounts = tm.callCapablePhoneAccounts
                 if (accounts.size > 1) {
                     val choice = store.simFor(j.op)
+                    // Noms possibles de la SIM (ex. Moov Africa Burkina s'affiche souvent « Onatel » ou « Telmob »).
+                    val aliases = (SIM_ALIASES[j.op.lowercase()] ?: emptyList()) + listOf(j.op.lowercase(), j.opName.lowercase().substringBefore(' '))
+                    val labels = accounts.map { tm.getPhoneAccount(it)?.label?.toString() ?: "?" }
                     val handle = if (choice in accounts.indices) accounts[choice] else accounts.firstOrNull { h ->
                         val label = tm.getPhoneAccount(h)?.label?.toString()?.lowercase() ?: ""
-                        label.contains(j.op.lowercase()) || label.contains(j.opName.lowercase().substringBefore(' '))
+                        aliases.any { a -> a.isNotEmpty() && label.contains(a) }
                     }
-                    if (handle == null) return "Impossible de savoir quelle SIM est ${j.opName} : choisissez-la dans l'application (Envois d'argent)"
+                    if (handle == null) return "Impossible de savoir quelle SIM est ${j.opName} (SIM du téléphone : ${labels.joinToString(", ")}) : choisissez SIM 1 ou SIM 2 dans l'application, onglet Envois"
                     extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
                 }
             } catch (_: SecurityException) {
