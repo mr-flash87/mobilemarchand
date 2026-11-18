@@ -1,3 +1,3 @@
-Confirmation des paiements Wave et SMS même écran éteint (téléphone en veille) : l'application réessaie l'envoi pendant environ 90 secondes au lieu d'attendre le déverrouillage.
-Le service permanent est relancé automatiquement s'il a été arrêté.
-Le journal de l'application indique maintenant si un paiement a été transmis en retard.
+Signature définitive de l'application : à partir de cette version, les prochaines mises à jour s'installeront directement par-dessus, sans désinstaller ni réassocier le téléphone.
+⚠️ Pour cette version seulement (dernière fois) : désinstallez l'ancienne application, installez celle-ci, puis associez-la de nouveau (Téléphones > Nouveau code) et réactivez l'accès aux notifications.
+Comprend aussi l'envoi des paiements Wave et SMS même écran éteint (nouveaux essais pendant environ 90 secondes).
