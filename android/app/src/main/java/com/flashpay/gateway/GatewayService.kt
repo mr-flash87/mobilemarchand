@@ -30,6 +30,48 @@ class GatewayService : Service() {
         }
     }
 
+    /** Envois d'argent : toutes les 15 s, demande au site s'il y a un envoi à faire. */
+    private val payoutTick = object : Runnable {
+        override fun run() {
+            try {
+                payoutCheck()
+            } catch (e: Exception) {
+                Store.get(this@GatewayService).log("❌ Envoi d'argent : ${e.message}")
+            }
+            handler.postDelayed(this, PAYOUT_MS)
+        }
+    }
+
+    private fun payoutCheck() {
+        val store = Store.get(this)
+        if (!PayoutRunner.ready(this, store) || !store.payoutsServerEnabled) return
+        // Un résultat pas encore transmis passe avant tout nouvel envoi (jamais deux envois sans compte rendu).
+        store.pendingPayoutReport?.let {
+            try {
+                Api.reportPayout(store, org.json.JSONObject(it))
+                store.pendingPayoutReport = null
+            } catch (e: Exception) {
+                return
+            }
+        }
+        val job = try { Api.nextPayout(this, store, PayoutRunner.readyOperators(this, store)) } catch (e: Exception) { null } ?: return
+        store.log("💸 Envoi de ${job.amount} F vers ${job.phone} (${job.opName})…")
+        val (status, message, pinSent) = PayoutRunner.run(this, store, job)
+        store.log(
+            when (status) {
+                "done" -> "📨 ${job.opName} : ${message.take(120)}"
+                "failed" -> "❌ Envoi non fait : ${message.take(120)}"
+                else -> "⚠️ Envoi à vérifier : ${message.take(120)}"
+            }
+        )
+        val report = org.json.JSONObject().put("ref", job.ref).put("status", status).put("message", message).put("pin_sent", pinSent)
+        try {
+            Api.reportPayout(store, report)
+        } catch (e: Exception) {
+            store.pendingPayoutReport = report.toString()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         running = true
@@ -37,6 +79,7 @@ class GatewayService : Service() {
         handler = Handler(thread.looper)
         startAsForeground()
         handler.post(tick)
+        handler.postDelayed(payoutTick, 5_000)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -114,6 +157,7 @@ class GatewayService : Service() {
         private const val CHANNEL = "gateway"
         private const val NOTIF_ID = 1
         private const val HEARTBEAT_MS = 120_000L
+        private const val PAYOUT_MS = 15_000L
         private const val ACTION_FLUSH = "flush"
         @Volatile var running = false
 

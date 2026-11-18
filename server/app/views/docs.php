@@ -48,6 +48,8 @@ $sections = [
     'get' => 'Consulter',
     'list' => 'Lister',
     'cancel' => 'Annuler',
+    'refund' => 'Rembourser',
+    'payouts' => 'Envoyer de l\'argent',
     'status' => 'Statuts',
     'operators' => 'Opérateurs',
     'ussd' => 'Codes USSD',
@@ -173,6 +175,52 @@ $sections = [
         <div class="ep"><span class="m post">POST</span><code>/payments/{id}/cancel</code></div>
         <h2>Annuler un paiement</h2>
         <p>Possible uniquement si le statut est <code>pending</code>.</p>
+      </section>
+
+      <section id="refund">
+        <div class="ep"><span class="m post">POST</span><code>/payments/{id}/refund</code></div>
+        <h2>Rembourser un paiement</h2>
+        <p>Renvoie l'argent au client, sur le numéro et par l'opérateur avec lesquels il a payé (ex. commande annulée).
+          Le téléphone passerelle compose le code USSD d'envoi et saisit le code secret, qui reste dans le téléphone.
+          Selon les réglages, un administrateur valide d'abord le remboursement (sur le tableau de bord ou Telegram).</p>
+        <?php doc_params([
+            ['amount', 'entier', false, 'Montant à rembourser. Par défaut : tout ce qui n\'a pas encore été remboursé.'],
+            ['reason', 'texte', false, 'Motif (ex. « commande annulée »).'],
+            ['callback_url', 'url', false, 'Webhook du résultat, à la place de celui du compte.'],
+        ]); ?>
+        <?php doc_code([
+            'cURL' => "curl -X POST $api/payments/PAY-7KQ2M9XT4B/refund \\\n  -H \"Authorization: Bearer fp_live_xxx\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"reason\": \"Commande annulée\"}'",
+            'PHP' => "\$ch = curl_init('$api/payments/' . \$paymentId . '/refund');\ncurl_setopt_array(\$ch, [\n  CURLOPT_POST => true,\n  CURLOPT_RETURNTRANSFER => true,\n  CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . \$apiKey, 'Content-Type: application/json'],\n  CURLOPT_POSTFIELDS => json_encode(['reason' => 'Commande annulée']),\n]);\n\$refund = json_decode(curl_exec(\$ch), true); // \$refund['id'] = OUT-…, \$refund['status']",
+        ], 'refund'); ?>
+      </section>
+
+      <section id="payouts">
+        <div class="ep"><span class="m post">POST</span><code>/payouts</code></div>
+        <h2>Envoyer de l'argent</h2>
+        <p>Envoie de l'argent à n'importe quel numéro (retraits de vos clients, transferts entre réseaux…).
+          Exemple d'un service Orange → Moov : à la réception du webhook <code>payment.succeeded</code> d'un paiement Orange, créez un envoi <code>moov</code> vers le numéro de votre client.</p>
+        <?php doc_params([
+            ['amount', 'entier', true, 'Montant à envoyer.'],
+            ['phone', 'texte', true, 'Numéro du bénéficiaire (8 chiffres).'],
+            ['operator', 'texte', true, 'Opérateur d\'envoi : ' . (implode(', ', array_map(fn($o) => '<code>' . h($o['code']) . '</code>', array_filter(operators(true), 'operator_can_payout'))) ?: 'aucun configuré') . '.'],
+            ['reference', 'texte', false, 'Votre référence (ex. numéro de retrait).'],
+            ['description', 'texte', false, 'Description libre.'],
+            ['callback_url', 'url', false, 'Webhook du résultat.'],
+            ['metadata', 'objet', false, 'Données libres renvoyées telles quelles.'],
+        ]); ?>
+        <?php doc_code([
+            'cURL' => "curl -X POST $api/payouts \\\n  -H \"Authorization: Bearer fp_live_xxx\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"amount\": 5000, \"phone\": \"60112233\", \"operator\": \"moov\", \"reference\": \"RETRAIT-1234\"}'",
+            'Réponse' => json_encode(['id' => 'OUT-3H7KQ2M9XT', 'object' => 'payout', 'status' => 'queued', 'amount' => 5000, 'currency' => (string)setting('currency'), 'phone' => '60112233', 'operator' => 'moov', 'operator_name' => 'Moov Money', 'payment' => null, 'reference' => 'RETRAIT-1234', 'operator_message' => null, 'created_at' => gmdate('Y-m-d\TH:i:s\Z'), 'completed_at' => null], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        ], 'payouts'); ?>
+        <p>Autres routes : <code>GET /payouts/{id}</code>, <code>GET /payouts</code>, <code>GET /refunds</code>, <code>POST /payouts/{id}/cancel</code> (tant que l'envoi n'est pas parti).</p>
+        <div class="dp">
+          <div class="dp-row"><div class="dp-name"><span class="badge b-pending">approval</span></div><div class="dp-desc">À valider par un administrateur (montant au-dessus du seuil automatique).</div></div>
+          <div class="dp-row"><div class="dp-name"><span class="badge b-pending">queued</span> <span class="badge b-pending">sending</span></div><div class="dp-desc">En file, puis en cours d'envoi par le téléphone passerelle.</div></div>
+          <div class="dp-row"><div class="dp-name"><span class="badge b-paid">success</span></div><div class="dp-desc">Argent envoyé (confirmé par l'opérateur). Webhook <code>payout.succeeded</code>.</div></div>
+          <div class="dp-row"><div class="dp-name"><span class="badge b-cancelled">failed</span> <span class="badge b-cancelled">cancelled</span></div><div class="dp-desc">Rien n'est parti (solde insuffisant, refus…). Webhooks <code>payout.failed</code> / <code>payout.cancelled</code>.</div></div>
+          <div class="dp-row"><div class="dp-name"><span class="badge b-review">unknown</span></div><div class="dp-desc">Résultat incertain : vérifié par un administrateur, qui le passe en <code>success</code> ou <code>failed</code>. Jamais renvoyé automatiquement (pas de double envoi).</div></div>
+        </div>
+        <div class="callout"><?= icon('alert', 18) ?><div>Plafonds : <?= h(fmt_amount(setting('payout_max', '200000'), 'F')) ?> par envoi et <?= h(fmt_amount(setting('payout_daily_limit', '500000'), 'F')) ?> par jour. Gardez toujours du solde sur chaque SIM du téléphone passerelle.</div></div>
       </section>
 
       <section id="status">

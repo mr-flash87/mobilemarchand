@@ -50,6 +50,14 @@ object Api {
         cfg.optJSONArray("allowed_senders")?.let { arr ->
             store.allowedSenders = List(arr.length()) { arr.getString(it) }
         }
+        cfg.optJSONObject("payouts")?.let { po ->
+            store.payoutsServerEnabled = po.optBoolean("enabled", true)
+            val arr = po.optJSONArray("operators") ?: JSONArray()
+            store.payoutOperators = List(arr.length()) {
+                val o = arr.getJSONObject(it)
+                PayoutOp(o.getString("code"), o.optString("name", o.getString("code")), o.optString("ussd"))
+            }
+        }
         cfg.optJSONArray("notification_apps")?.let { arr ->
             store.notificationApps = List(arr.length()) {
                 val o = arr.getJSONObject(it)
@@ -115,6 +123,17 @@ object Api {
         }
         store.lastError = ""
         return sent
+    }
+
+    /** Demande au site le prochain envoi d'argent à faire (null s'il n'y en a pas). */
+    fun nextPayout(context: Context, store: Store, operators: List<String>): PayoutJob? {
+        val res = post("${store.serverUrl}/api/device/payouts/next", store.token, deviceInfo(context).put("operators", JSONArray(operators)))
+        return res.optJSONObject("payout")?.let { PayoutJob.from(it) }
+    }
+
+    /** Transmet le résultat d'un envoi (status : done | failed | unknown). */
+    fun reportPayout(store: Store, report: JSONObject) {
+        post("${store.serverUrl}/api/device/payouts/${report.getString("ref")}/result", store.token, report)
     }
 
     private fun deviceInfo(context: Context): JSONObject {

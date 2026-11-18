@@ -70,6 +70,9 @@ function tg_commands(): array
         ['command' => 'operateurs', 'description' => 'Opérateurs et numéros marchands'],
         ['command' => 'abonnement', 'description' => 'Mon abonnement (marchands)'],
         ['command' => 'marchands', 'description' => 'Comptes marchands (admin)'],
+        ['command' => 'envoyer', 'description' => 'Envoyer de l\'argent : /envoyer 5000 70112233 orange'],
+        ['command' => 'envois', 'description' => 'Envois et remboursements'],
+        ['command' => 'rembourser', 'description' => 'Rembourser un paiement : /rembourser PAY-…'],
         ['command' => 'notifs', 'description' => 'Activer / couper les notifications ici'],
         ['command' => 'delier', 'description' => 'Délier cette discussion'],
         ['command' => 'aide', 'description' => 'Aide'],
@@ -150,7 +153,15 @@ function tg_notify(string $title, string $body, string $path, string $tag, ?int 
             return 0;
         }
         $buttons = [];
-        if (str_starts_with($tag, 'pay-')) {
+        if (str_starts_with($tag, 'out-')) {
+            $o = payout_find(substr($tag, 4));
+            if ($o && $o['status'] === 'approval') {
+                $buttons[] = ['✅ Valider l\'envoi', 'oa:' . $o['reference']];
+                $buttons[] = ['🚫 Refuser', 'or:' . $o['reference']];
+            } elseif ($o) {
+                $buttons[] = ['🔎 Détails', 'od:' . $o['reference']];
+            }
+        } elseif (str_starts_with($tag, 'pay-')) {
             $buttons[] = ['🔎 Détails', 'pd:' . substr($tag, 4)];
         } elseif (str_starts_with($tag, 'sms-')) {
             $buttons[] = ['🔎 Voir les SMS', 'sm'];
@@ -329,6 +340,24 @@ function tg_handle(array $u): void
             }
             tg_reply_screen($chat['id'], tg_create_payment($args));
             return;
+        case 'rembourser':
+            if ($err = tg_deny($actor)) {
+                tg_send($chat['id'], $err);
+                return;
+            }
+            $a = preg_split('/\s+/', $args);
+            $p = tg_find_payment(strtoupper($a[0] ?? ''));
+            if (!$p) {
+                tg_send($chat['id'], 'Utilisation : <code>/rembourser PAY-XXXXXXXXXX</code> (tout) ou <code>/rembourser PAY-XXXXXXXXXX 2000</code>');
+                return;
+            }
+            try {
+                $o = payout_refund($p, isset($a[1]) ? (float)preg_replace('/\D/', '', $a[1]) : null, $p['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$p['merchant_id']]) : null, 'telegram');
+                tg_reply_screen($chat['id'], tg_screen_payout($o['reference']));
+            } catch (InvalidArgumentException $e) {
+                tg_send($chat['id'], '❌ ' . tg_h(preg_replace('/^\w+: /', '', $e->getMessage())));
+            }
+            return;
         case 'rapprocher':
             if ($err = tg_deny($actor)) {
                 tg_send($chat['id'], $err);
@@ -342,6 +371,16 @@ function tg_handle(array $u): void
             }
             [$ok, $txt] = sms_action($sms, 'match', strtoupper($a[1]));
             tg_send($chat['id'], ($ok ? '✅ ' : '❌ ') . tg_h($txt));
+            return;
+        case 'envois':
+            tg_reply_screen($chat['id'], tg_screen_payouts());
+            return;
+        case 'envoyer':
+            if ($err = tg_deny($actor)) {
+                tg_send($chat['id'], $err);
+                return;
+            }
+            tg_reply_screen($chat['id'], tg_create_payout($args, $from));
             return;
         case 'notifs':
             if (!$private && !tg_is_chat_admin($chat['id'], (int)($from['id'] ?? 0))) {
@@ -386,7 +425,7 @@ function tg_on_callback(array $cb): void
     $toast = null;
 
     // Actions (modifient des données) : autorisation vérifiée d'abord.
-    if (in_array($op, ['pK', 'pC', 'sa', 'si', 'ma', 'ot', 'nw'], true) && ($err = tg_deny($actor))) {
+    if (in_array($op, ['pK', 'pC', 'sa', 'si', 'ma', 'ot', 'nw', 'oa', 'or', 'oS', 'oF', 'rF'], true) && ($err = tg_deny($actor))) {
         tg_api('answerCallbackQuery', ['callback_query_id' => $cb['id'], 'text' => strip_tags($err), 'show_alert' => true]);
         return;
     }
@@ -416,6 +455,41 @@ function tg_on_callback(array $cb): void
             $screen = tg_screen_payment($arg);
             break;
         case 'sm': $screen = tg_screen_sms(); break;
+        case 'ol': $screen = tg_screen_payouts(); break;
+        case 'od': $screen = tg_screen_payout($arg); break;
+        case 'oa':
+        case 'or':
+        case 'oS':
+        case 'oF':
+            $o = tg_find_payout($arg);
+            $by = 'telegram:' . trim(($cb['from']['first_name'] ?? '') . ' ' . ($cb['from']['username'] ?? ''));
+            $done = $o && match ($op) {
+                'oa' => payout_approve($o, $by),
+                'or' => payout_cancel($o, $by),
+                'oS' => payout_resolve($o, 'success', $by),
+                'oF' => payout_resolve($o, 'failed', $by),
+            };
+            $toast = !$o ? 'Envoi introuvable.' : ($done ? ['oa' => '✅ Validé : le téléphone va envoyer l\'argent.', 'or' => 'Envoi refusé.', 'oS' => 'Noté : argent parti.', 'oF' => 'Noté : rien n\'est parti.'][$op] : 'Déjà traité (' . payout_status_label($o['status']) . ').');
+            $screen = tg_screen_payout($arg);
+            break;
+        case 'rf':
+            $p = tg_find_payment($arg);
+            $screen = $p && $p['status'] === 'paid'
+                ? ['↩️ <b>Rembourser</b> ' . tg_h(fmt_amount($p['paid_amount'] ?: $p['amount'], 'F')) . ' au client ' . tg_h($p['payer_phone'] ?: '') . " ?\nLe téléphone passerelle renverra l'argent par le même opérateur.\n<i>Pour un montant partiel : /rembourser " . tg_h($p['reference']) . ' 2000</i>',
+                    [[['↩️ Oui, rembourser tout', 'rF:' . $p['reference']], ['↩️ Non', 'pd:' . $p['reference']]]]]
+                : tg_screen_payment($arg);
+            break;
+        case 'rF':
+            $p = tg_find_payment($arg);
+            try {
+                $o = $p ? payout_refund($p, null, $p['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$p['merchant_id']]) : null, 'telegram') : null;
+                $screen = $o ? tg_screen_payout($o['reference']) : tg_screen_payment($arg);
+                $toast = $o ? 'Remboursement créé.' : 'Paiement introuvable.';
+            } catch (InvalidArgumentException $e) {
+                $toast = preg_replace('/^\w+: /', '', $e->getMessage());
+                $screen = tg_screen_payment($arg);
+            }
+            break;
         case 'sa':
         case 'si':
             $sms = tg_find_sms((int)$arg);
@@ -637,6 +711,7 @@ function tg_screen_menu(): array
         [['📊 Statistiques', 'st'], ['💳 Paiements', 'pl:0']],
         [['⏳ En attente' . ($pending ? " ($pending)" : ''), 'pe'], ['🔎 SMS' . ($review ? " ($review)" : ''), 'sm']],
         [['📱 Téléphones', 'dv'], ['🏦 Opérateurs', 'op']],
+        [['💸 Envois & remboursements', 'ol']],
         [is_admin_ctx() ? ['🏪 Marchands', 'mc'] : ['📅 Abonnement', 'sb'], ['➕ Créer un paiement', 'nw']],
     ];
     if ($u = tg_dash_url()) {
@@ -816,6 +891,9 @@ function tg_screen_payment(string $ref): array
     }
     if ($p['status'] === 'pending') {
         $act[] = ['❌ Annuler', 'pc:' . $p['reference']];
+    }
+    if ($p['status'] === 'paid' && payouts_enabled()) {
+        $act[] = ['↩️ Rembourser', 'rf:' . $p['reference']];
     }
     if ($act) {
         $btns[] = $act;
@@ -1040,6 +1118,9 @@ function tg_help(): string
         . "/paiement PAY-… : détail, valider ou annuler\n"
         . "/sms : SMS à vérifier et argent reçu sans paiement\n"
         . "/rapprocher 12 PAY-… : relier un SMS à un paiement\n"
+        . "/envoyer 5000 70112233 orange : envoyer de l'argent\n"
+        . "/rembourser PAY-… [montant] : rembourser un client\n"
+        . "/envois : envois et remboursements (valider, suivre)\n"
         . "/telephones : état des téléphones et soldes\n"
         . "/operateurs : opérateurs (activer / désactiver)\n"
         . (is_admin_ctx() ? "/marchands : comptes à valider, abonnements\n" : "/abonnement : état de votre abonnement\n")
@@ -1146,4 +1227,117 @@ function app_release_check(bool $force = false): bool
         log_line('annonce version: ' . $e->getMessage());
         return false;
     }
+}
+
+/* ------------------------------------------------------------------
+ *  Envois d'argent et remboursements
+ * ------------------------------------------------------------------ */
+
+function tg_find_payout(string $ref): ?array
+{
+    $o = $ref !== '' ? payout_find($ref) : null;
+    if ($o && !is_admin_ctx() && (int)$o['merchant_id'] !== ctx_mid()) {
+        return null;
+    }
+    return $o;
+}
+
+function tg_payout_line(array $o): string
+{
+    $op = operator_by_code($o['operator'], $o['scope_id'] !== null ? (int)$o['scope_id'] : null);
+    return payout_emoji($o['status']) . ' <b>' . tg_h(fmt_amount($o['amount'], 'F')) . '</b> → ' . tg_h($o['phone']) . ' · ' . tg_h($op['name'] ?? $o['operator'])
+        . "\n     <code>" . tg_h($o['reference']) . '</code> · ' . tg_h(payout_status_label($o['status'])) . ' · ' . tg_h(substr(fmt_dt($o['created_at']), 0, 16));
+}
+
+function tg_screen_payouts(): array
+{
+    $params = [];
+    $where = is_admin_ctx() ? '1=1' : list_scope_sql('merchant_id', $params);
+    $rows = q_all("SELECT * FROM payouts WHERE $where ORDER BY CASE WHEN status IN ('approval','unknown') THEN 0 ELSE 1 END, id DESC LIMIT 10", $params);
+    $text = "💸 <b>Envois & remboursements</b>\n\n";
+    $btns = [];
+    if (!$rows) {
+        $text .= "Aucun envoi pour l'instant.";
+    } else {
+        $text .= implode("\n", array_map('tg_payout_line', $rows));
+        foreach (array_chunk($rows, 2) as $pair) {
+            $btns[] = array_map(fn($o) => [payout_emoji($o['status']) . ' ' . fmt_amount($o['amount'], 'F') . ' · ' . substr($o['reference'], -4), 'od:' . $o['reference']], $pair);
+        }
+    }
+    $text .= "\n\n<i>Nouvel envoi : /envoyer 5000 70112233 orange\nRemboursement : bouton « ↩️ Rembourser » sur un paiement payé.</i>";
+    $btns[] = [['🔄 Actualiser', 'ol'], ['⬅️ Menu', 'm']];
+    return [$text, $btns];
+}
+
+function tg_screen_payout(string $ref): array
+{
+    $o = tg_find_payout($ref);
+    if (!$o) {
+        return ['❌ Envoi <code>' . tg_h($ref) . '</code> introuvable.', [[['💸 Envois', 'ol'], ['⬅️ Menu', 'm']]]];
+    }
+    $op = operator_by_code($o['operator'], $o['scope_id'] !== null ? (int)$o['scope_id'] : null);
+    $lines = [
+        payout_emoji($o['status']) . ' <b>' . ($o['kind'] === 'refund' ? 'Remboursement' : 'Envoi') . ' de ' . tg_h(fmt_amount($o['amount'], 'F')) . '</b> · ' . tg_h(payout_status_label($o['status'])),
+        'Bénéficiaire : ' . tg_h($o['phone']) . ' (' . tg_h($op['name'] ?? $o['operator']) . ')',
+        'Référence : <code>' . tg_h($o['reference']) . '</code>',
+    ];
+    if ($o['payment_id']) {
+        $lines[] = 'Paiement remboursé : <code>' . tg_h((string)q_val('SELECT reference FROM payments WHERE id = ?', [$o['payment_id']])) . '</code>';
+    }
+    if ($o['description']) {
+        $lines[] = 'Description : ' . tg_h($o['description']);
+    }
+    $lines[] = 'Créé : ' . tg_h(fmt_dt($o['created_at'])) . ($o['created_by'] ? ' par ' . tg_h($o['created_by']) : '');
+    if ($o['completed_at']) {
+        $lines[] = 'Terminé : ' . tg_h(fmt_dt($o['completed_at']));
+    }
+    if ($o['result_text']) {
+        $lines[] = "Réponse de l'opérateur :\n<i>" . tg_h($o['result_text']) . '</i>';
+    }
+    if ($o['status'] === 'approval') {
+        $lines[] = "\n⚠️ Après validation, le téléphone passerelle enverra l'argent automatiquement.";
+    } elseif ($o['status'] === 'unknown') {
+        $lines[] = "\n⚠️ Résultat incertain : vérifiez sur le téléphone (SMS de l'opérateur, solde) si l'argent est parti.";
+    }
+    $btns = [];
+    if ($o['status'] === 'approval') {
+        $btns[] = [['✅ Valider l\'envoi', 'oa:' . $o['reference']], ['🚫 Refuser', 'or:' . $o['reference']]];
+    } elseif ($o['status'] === 'queued') {
+        $btns[] = [['🚫 Annuler', 'or:' . $o['reference']]];
+    } elseif (in_array($o['status'], ['unknown', 'sending'], true)) {
+        $btns[] = [['✅ L\'argent est parti', 'oS:' . $o['reference']], ['❌ Rien n\'est parti', 'oF:' . $o['reference']]];
+    }
+    $btns[] = [['🔄 Actualiser', 'od:' . $o['reference']], ['💸 Envois', 'ol'], ['⬅️ Menu', 'm']];
+    return [implode("\n", $lines), $btns];
+}
+
+function tg_create_payout(string $args, array $from): array
+{
+    $tok = preg_split('/\s+/', trim($args));
+    $amountTxt = array_shift($tok) ?? '';
+    while ($tok && preg_match('/^\d{3}$/', $tok[0]) && preg_match('/^\d{1,3}$/', $amountTxt)) {
+        $amountTxt .= array_shift($tok);
+    }
+    $phone = '';
+    while ($tok && preg_match('/^\+?\d+$/', $tok[0]) && strlen(preg_replace('/\D/', '', $phone)) < 8) {
+        $phone .= array_shift($tok);
+    }
+    $opCode = strtolower((string)array_shift($tok));
+    $desc = trim(implode(' ', $tok));
+    $help = "\n\nExemple : <code>/envoyer 5000 70112233 orange Retrait n°12</code>";
+    if ($amountTxt === '' || $phone === '' || $opCode === '') {
+        $codes = implode(', ', array_column(array_filter(operators(true, current_scope()), 'operator_can_payout'), 'code'));
+        return ['💸 <b>Envoyer de l\'argent</b>' . $help . ($codes ? "\nOpérateurs : " . tg_h($codes) : ''), [[['⬅️ Menu', 'm']]]];
+    }
+    try {
+        $o = payout_create([
+            'amount' => preg_replace('/\D/', '', $amountTxt),
+            'phone' => $phone,
+            'operator' => $opCode,
+            'description' => $desc !== '' ? $desc : null,
+        ], is_admin_ctx() ? null : ctx()['merchant'], 'telegram:' . trim(($from['first_name'] ?? '') . ' ' . ($from['username'] ?? '')));
+    } catch (InvalidArgumentException $e) {
+        return ['❌ ' . tg_h(ucfirst((string)preg_replace(['/^amount: /', '/^phone: /', '/^operator: /', '/^\w+: /'], ['Montant : ', 'Numéro : ', 'Opérateur : ', ''], $e->getMessage()))) . $help, [[['⬅️ Menu', 'm']]]];
+    }
+    return tg_screen_payout($o['reference']);
 }

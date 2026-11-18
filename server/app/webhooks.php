@@ -47,8 +47,12 @@ function webhook_deliver(int $deliveryId): bool
     if (!$d || $d['status'] === 'delivered') {
         return true;
     }
-    $p = q_one('SELECT merchant_id FROM payments WHERE id = ?', [$d['payment_id']]);
-    $merchant = $p && $p['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$p['merchant_id']]) : null;
+    if (!empty($d['merchant_id'])) { // envoi d'argent (payout)
+        $merchant = q_one('SELECT * FROM merchants WHERE id = ?', [$d['merchant_id']]);
+    } else {
+        $p = q_one('SELECT merchant_id FROM payments WHERE id = ?', [$d['payment_id']]);
+        $merchant = $p && $p['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$p['merchant_id']]) : null;
+    }
     $secret = $merchant['webhook_secret'] ?? (string)cfg('app_secret');
     $ts = time();
     $sig = webhook_sign($d['payload'], $secret, $ts);
@@ -123,5 +127,6 @@ function run_maintenance(): array
         'expired' => payments_expire(),
         'webhooks_retried' => webhooks_retry_due(),
         'app_release_announced' => app_release_check(),
+        'payouts_unknown' => payouts_watchdog(),
     ];
 }

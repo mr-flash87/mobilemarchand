@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
@@ -62,6 +63,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -83,6 +85,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -111,6 +114,13 @@ data class UiState(
     val notifAccess: Boolean = false,
     val serviceOn: Boolean = false,
     val entries: List<LogEntry> = emptyList(),
+    val payoutOps: List<PayoutOp> = emptyList(),
+    val payoutPins: Set<String> = emptySet(),
+    val payoutsOn: Boolean = false,
+    val payoutsServer: Boolean = true,
+    val accessibilityOn: Boolean = false,
+    val callPermission: Boolean = false,
+    val phoneStatePermission: Boolean = false,
 )
 
 class MainActivity : ComponentActivity() {
@@ -146,7 +156,27 @@ class MainActivity : ComponentActivity() {
             notifAccess = PaymentNotificationListener.isEnabled(this),
             serviceOn = GatewayService.running,
             entries = store.recentEntries(40),
+            payoutOps = store.payoutOperators,
+            payoutPins = store.payoutOperators.filter { PinVault.has(this, it.code) }.map { it.code }.toSet(),
+            payoutsOn = store.payoutsEnabled,
+            payoutsServer = store.payoutsServerEnabled,
+            accessibilityOn = PayoutRunner.accessibilityOn(this),
+            callPermission = has(Manifest.permission.CALL_PHONE),
+            phoneStatePermission = has(Manifest.permission.READ_PHONE_STATE),
         )
+    }
+
+    fun askPayoutPermissions() {
+        val missing = listOf(Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE).filterNot { has(it) }
+        if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), 42) else openAppSettings()
+    }
+
+    fun openAccessibility() {
+        try {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } catch (e: Exception) {
+            openAppSettings()
+        }
     }
 
     fun neededPermissions(): Array<String> {
@@ -457,6 +487,7 @@ fun HomeScreen(
                     StatTile("En attente", state.pending.toString(), "d'envoi", Modifier.weight(1f), if (state.pending > 0) Brand.Amber else null)
                 }
                 ChecklistCard(activity, state, askPermissions)
+                PayoutCard(activity, state, toast, refresh)
                 ActivityCard(state.entries)
                 PrivacyNote()
                 Text(
@@ -601,6 +632,93 @@ private fun CheckRow(icon: ImageVector, title: String, sub: String, ok: Boolean,
             OutlinedButton(onClick = onClick, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp), shape = MaterialTheme.shapes.small) {
                 Text(action, fontSize = 13.sp)
             }
+        }
+    }
+}
+
+@Composable
+private fun PayoutCard(activity: MainActivity, state: UiState, toast: (String) -> Unit, refresh: () -> Unit) {
+    SectionCard {
+        CardTitle("Envois d'argent (remboursements)")
+        if (state.payoutOps.isEmpty() || !state.payoutsServer) {
+            Text(
+                "Pas encore disponible : sur le site, renseignez le « Code USSD pour envoyer » dans Opérateurs.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp
+            )
+            return@SectionCard
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Envois automatiques", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("Ce téléphone envoie l'argent demandé depuis votre espace", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = state.payoutsOn, onCheckedChange = {
+                activity.store.payoutsEnabled = it
+                activity.store.log(if (it) "💸 Envois d'argent activés" else "Envois d'argent désactivés")
+                refresh()
+            })
+        }
+        if (!state.payoutsOn) return@SectionCard
+        Spacer(Modifier.height(4.dp))
+        CheckRow(Icons.Filled.Phone, "Appels (codes USSD)", "Pour composer le code d'envoi sur la bonne SIM", state.callPermission && state.phoneStatePermission, "Autoriser") { activity.askPayoutPermissions() }
+        CheckRow(Icons.Filled.Settings, "Accessibilité", "Pour saisir le code secret dans la fenêtre USSD", state.accessibilityOn, "Activer") { activity.openAccessibility() }
+        if (!state.accessibilityOn) {
+            Text(
+                "Touchez « Activer », ouvrez « Applications installées » (ou « Services téléchargés »), choisissez « Passerelle Pay : envois d'argent » et activez-le. Si c'est grisé : Paramètres → Applications → Passerelle Pay → ⋮ → « Autoriser les paramètres restreints ».",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp)
+            )
+        }
+        state.payoutOps.forEach { op -> PinRow(activity, op, op.code in state.payoutPins, toast, refresh) }
+        Spacer(Modifier.height(8.dp))
+        Notice(
+            "Le code secret est chiffré et reste dans ce téléphone : il n'est jamais envoyé au site. Pour que la fenêtre USSD s'affiche écran éteint, mettez le verrouillage de l'écran sur « Aucun » ou « Glisser ».",
+            MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.surfaceVariant, Icons.Filled.Lock
+        )
+    }
+}
+
+@Composable
+private fun PinRow(activity: MainActivity, op: PayoutOp, hasPin: Boolean, toast: (String) -> Unit, refresh: () -> Unit) {
+    var pin by remember { mutableStateOf("") }
+    var sim by remember { mutableStateOf(activity.store.simFor(op.code)) }
+    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(op.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text(
+                (if (hasPin) "✅ Code secret enregistré" else "Aucun code secret") + " · " + op.ussd.replace("{number}", "numéro").replace("{amount}", "montant"),
+                fontSize = 12.sp, color = if (hasPin) Brand.Green else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        TextButton(onClick = {
+            sim = when (sim) { -1 -> 0; 0 -> 1; else -> -1 }
+            activity.store.setSim(op.code, sim)
+        }) { Text(when (sim) { 0 -> "SIM 1"; 1 -> "SIM 2"; else -> "SIM auto" }, fontSize = 13.sp) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = pin, onValueChange = { v -> pin = v.filter { it.isDigit() }.take(8) },
+            label = { Text(if (hasPin) "Nouveau code secret" else "Code secret ${op.name}") },
+            singleLine = true, modifier = Modifier.weight(1f),
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            shape = MaterialTheme.shapes.medium,
+        )
+        Spacer(Modifier.width(8.dp))
+        if (pin.length >= 4) {
+            Button(onClick = {
+                PinVault.save(activity, op.code, pin)
+                pin = ""
+                activity.store.log("🔐 Code secret ${op.name} enregistré")
+                toast("Code ${op.name} enregistré")
+                refresh()
+            }) { Text("OK") }
+        } else if (hasPin) {
+            TextButton(onClick = {
+                PinVault.clear(activity, op.code)
+                activity.store.log("Code secret ${op.name} effacé")
+                refresh()
+            }) { Text("Effacer", color = Brand.Red) }
         }
     }
 }

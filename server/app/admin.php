@@ -88,6 +88,9 @@ function admin_route(string $method, array $p): void
         case 'telegram':
             admin_telegram($method);
             return;
+        case 'payouts':
+            admin_payouts($method);
+            return;
         case 'password':
             if ($method === 'POST') {
                 $new = (string)($_POST['new_password'] ?? '');
@@ -204,6 +207,15 @@ function admin_payments(string $method, array $p): void
                 payment_mark_paid($pay, null, 'manual') ? flash('Paiement marqué comme payé, webhook envoyé.') : flash('Impossible : statut actuel ' . $pay['status'], 'err');
             } elseif ($a === 'cancel') {
                 payment_set_status($pay, 'cancelled') ? flash('Paiement annulé.') : flash('Seul un paiement en attente peut être annulé.', 'err');
+            } elseif ($a === 'refund') {
+                try {
+                    $amt = trim((string)($_POST['refund_amount'] ?? ''));
+                    $who = is_admin_ctx() ? 'admin' : 'espace';
+                    $o = payout_refund($pay, $amt === '' ? null : (float)$amt, $pay['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$pay['merchant_id']]) : null, $who, trim((string)($_POST['reason'] ?? '')));
+                    flash('Remboursement ' . $o['reference'] . ' créé : ' . payout_status_label($o['status']) . '. Suivez-le dans « Envois & remboursements ».');
+                } catch (InvalidArgumentException $e) {
+                    flash(preg_replace('/^\w+: /', '', $e->getMessage()), 'err');
+                }
             } elseif ($a === 'resend') {
                 $ev = $pay['status'] === 'paid' ? 'payment.succeeded' : 'payment.' . $pay['status'];
                 webhook_queue((int)$pay['id'], $ev);
@@ -214,7 +226,8 @@ function admin_payments(string $method, array $p): void
         $merchant = $pay['merchant_id'] ? q_one('SELECT * FROM merchants WHERE id = ?', [$pay['merchant_id']]) : null;
         $sms = $pay['sms_id'] ? q_one('SELECT * FROM sms_messages WHERE id = ?', [$pay['sms_id']]) : null;
         $hooks = q_all('SELECT * FROM webhook_deliveries WHERE payment_id = ? ORDER BY id DESC', [$pay['id']]);
-        admin_page('admin_payment', 'Paiement ' . $pay['reference'], compact('pay', 'merchant', 'sms', 'hooks'));
+        $refunds = q_all('SELECT * FROM payouts WHERE payment_id = ? ORDER BY id DESC', [$pay['id']]);
+        admin_page('admin_payment', 'Paiement ' . $pay['reference'], compact('pay', 'merchant', 'sms', 'hooks', 'refunds'));
         return;
     }
     $status = (string)($_GET['status'] ?? '');
@@ -581,6 +594,7 @@ function admin_operators(string $method): void
                 'ussd_primary' => max(0, (int)($_POST['ussd_primary'] ?? 0)),
                 'ussd_show_alt' => !empty($_POST['ussd_show_alt']) ? 1 : 0,
                 'fee_percent' => max(0, min(20, (float)str_replace(',', '.', (string)($_POST['fee_percent'] ?? '0')))),
+                'payout_ussd' => mb_substr(trim((string)($_POST['payout_ussd'] ?? '')), 0, 255),
             ];
         };
         $check = function (array $f): ?string {
@@ -592,6 +606,9 @@ function admin_operators(string $method): void
             }
             if ($f['app_package'] !== '' && !rx_valid($f['app_package'])) {
                 return 'Application (notifications) : expression invalide.';
+            }
+            if ($f['payout_ussd'] !== '' && (!str_contains($f['payout_ussd'], '{number}') || !str_contains($f['payout_ussd'], '{amount}'))) {
+                return 'Code USSD d\'envoi : il doit contenir {number} et {amount}.';
             }
             if ($f['pay_link'] !== '' && !preg_match('#^https?://#', $f['pay_link'])) {
                 return 'Le lien de paiement doit commencer par https://';
@@ -737,4 +754,67 @@ function admin_telegram(string $method): void
         ];
     }
     admin_page('admin_telegram', 'Telegram', compact('code', 'chats', 'webhook', 'release', 'history', 'counts'));
+}
+
+/** Envois d'argent et remboursements (admin : envois de la plateforme ; marchand : les siens). */
+function admin_payouts(string $method): void
+{
+    $scope = current_scope();
+    $who = is_admin_ctx() ? 'admin' : 'espace';
+    if ($method === 'POST') {
+        $a = (string)($_POST['action'] ?? '');
+        if ($a === 'settings' && is_admin_ctx()) {
+            setting_set('payouts_enabled', !empty($_POST['payouts_enabled']) ? '1' : '0');
+            foreach (['payout_auto_max', 'payout_max', 'payout_daily_limit'] as $f) {
+                setting_set($f, (string)max(0, (int)($_POST[$f] ?? 0)));
+            }
+            flash('Réglages des envois enregistrés.');
+            aredirect('payouts');
+        }
+        if ($a === 'create') {
+            $merchant = is_admin_ctx() ? null : ctx()['merchant'];
+            try {
+                $o = payout_create([
+                    'amount' => $_POST['amount'] ?? null,
+                    'phone' => $_POST['phone'] ?? '',
+                    'operator' => $_POST['operator'] ?? '',
+                    'description' => trim((string)($_POST['description'] ?? '')) ?: null,
+                ], $merchant, $who);
+                flash('Envoi ' . $o['reference'] . ' créé : ' . payout_status_label($o['status']) . '.');
+            } catch (InvalidArgumentException $e) {
+                flash(preg_replace('/^\w+: /', '', $e->getMessage()), 'err');
+            }
+            aredirect('payouts');
+        }
+        $o = payout_find((string)($_POST['ref'] ?? ''));
+        if ($o && !is_admin_ctx() && (int)$o['merchant_id'] !== ctx_mid()) {
+            $o = null;
+        }
+        if ($o) {
+            $ok = match ($a) {
+                'approve' => payout_approve($o, $who),
+                'cancel' => payout_cancel($o, $who),
+                'success' => payout_resolve($o, 'success', $who),
+                'failed' => payout_resolve($o, 'failed', $who),
+                'retry' => payout_retry($o),
+                default => false,
+            };
+            flash($ok ? 'Envoi ' . $o['reference'] . ' mis à jour.' : 'Action impossible dans l\'état actuel (' . payout_status_label($o['status']) . ').', $ok ? 'ok' : 'err');
+        }
+        aredirect('payouts');
+    }
+    $status = (string)($_GET['status'] ?? '');
+    $params = [];
+    $where = list_scope_sql('o.merchant_id', $params);
+    if (is_admin_ctx()) {
+        $where = '1=1';
+    }
+    if ($status !== '') {
+        $where .= ' AND o.status = ?';
+        $params[] = $status;
+    }
+    $rows = q_all("SELECT o.*, m.name AS merchant_name, p.reference AS payment_ref FROM payouts o LEFT JOIN merchants m ON m.id = o.merchant_id LEFT JOIN payments p ON p.id = o.payment_id WHERE $where ORDER BY o.id DESC LIMIT 200", $params);
+    $ops = array_values(array_filter(operators(true, $scope), 'operator_can_payout'));
+    $today = payouts_today_total($scope);
+    admin_page('admin_payouts', 'Envois & remboursements', compact('rows', 'status', 'ops', 'today'));
 }

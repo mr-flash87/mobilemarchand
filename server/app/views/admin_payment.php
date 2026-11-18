@@ -40,6 +40,25 @@
     <?php endif; ?>
   </div>
 </div>
+<?php if ($pay['status'] === 'paid' || $refunds): ?>
+<div class="card" id="refund">
+  <h2>Remboursement</h2>
+  <?php foreach ($refunds as $r): ?>
+    <p class="small"><?= payout_emoji($r['status']) ?> <strong><?= h(fmt_amount($r['amount'], 'F')) ?></strong> vers <?= h($r['phone']) ?> ·
+      <?= h(payout_status_label($r['status'])) ?> · <span class="mono"><?= h($r['reference']) ?></span> · <span class="muted"><?= h(fmt_dt($r['created_at'])) ?></span>
+      <?php if ($r['result_text']): ?><br><span class="muted">« <?= h($r['result_text']) ?> »</span><?php endif; ?></p>
+  <?php endforeach; ?>
+  <?php if ($pay['status'] === 'paid'): ?>
+    <form method="post" class="row" style="gap:10px;flex-wrap:wrap" onsubmit="return confirm('Rembourser ce client ? Le téléphone passerelle enverra l\'argent.')">
+      <?= csrf_field() ?><input type="hidden" name="action" value="refund">
+      <input type="number" name="refund_amount" min="1" placeholder="Montant (vide = tout)" style="max-width:200px">
+      <input type="text" name="reason" placeholder="Motif (ex. commande annulée)" style="flex:1;min-width:180px">
+      <button class="btn danger">↩️ Rembourser le client</button>
+    </form>
+    <p class="small muted">L'argent est renvoyé au numéro et par l'opérateur qui ont payé. Le téléphone passerelle compose le code USSD et saisit le code secret.</p>
+  <?php endif; ?>
+</div>
+<?php endif; ?>
 <div class="card table-wrap">
   <h2>Webhooks envoyés</h2>
   <table>

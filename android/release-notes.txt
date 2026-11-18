@@ -1,3 +1,4 @@
-Signature définitive de l'application : à partir de cette version, les prochaines mises à jour s'installeront directement par-dessus, sans désinstaller ni réassocier le téléphone.
-⚠️ Pour cette version seulement (dernière fois) : désinstallez l'ancienne application, installez celle-ci, puis associez-la de nouveau (Téléphones > Nouveau code) et réactivez l'accès aux notifications.
-Comprend aussi l'envoi des paiements Wave et SMS même écran éteint (nouveaux essais pendant environ 90 secondes).
+Nouveau : envois d'argent et remboursements automatiques (Orange Money et Moov Money). Le téléphone compose lui-même le code USSD d'envoi et saisit le code secret.
+Le code secret est chiffré et reste dans le téléphone (jamais envoyé au site).
+Pour l'activer : ouvrez l'application > « Envois d'argent », activez l'interrupteur, autorisez les appels et l'accessibilité, puis enregistrez le code secret de chaque opérateur.
+Mise à jour directe par-dessus la version 2.4.0 (pas besoin de désinstaller).

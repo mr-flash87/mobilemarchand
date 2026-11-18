@@ -284,6 +284,10 @@ function sms_ingest(?array $device, string $sender, string $body, ?int $received
         if ($device && $parsed['balance'] !== null) {
             device_set_balance((int)$device['id'], $row['operator'], (float)$parsed['balance']);
         }
+        // SMS « transfert effectué » : confirme un envoi d'argent resté en cours / à vérifier.
+        if ($parsed['amount'] !== null) {
+            payout_confirm_by_sms(q_one('SELECT * FROM sms_messages WHERE id = ?', [$id]), $device);
+        }
         return ['id' => $id, 'status' => 'info', 'payment' => null];
     }
 

@@ -93,6 +93,39 @@ class Store private constructor(context: Context) :
             prefs.edit().putString("notification_apps", arr.toString()).apply()
         }
 
+    // ---- Envois d'argent ----
+    /** Activé sur ce téléphone par l'utilisateur (désactivé par défaut). */
+    var payoutsEnabled: Boolean
+        get() = prefs.getBoolean("payouts_enabled", false)
+        set(v) = prefs.edit().putBoolean("payouts_enabled", v).apply()
+
+    /** Opérateurs capables d'envoyer, configurés sur le site. */
+    var payoutOperators: List<PayoutOp>
+        get() = try {
+            val arr = JSONArray(prefs.getString("payout_ops", "[]"))
+            List(arr.length()) { val o = arr.getJSONObject(it); PayoutOp(o.getString("code"), o.optString("name"), o.optString("ussd")) }
+        } catch (e: Exception) {
+            emptyList()
+        }
+        set(v) {
+            val arr = JSONArray()
+            v.forEach { arr.put(org.json.JSONObject().put("code", it.code).put("name", it.name).put("ussd", it.ussd)) }
+            prefs.edit().putString("payout_ops", arr.toString()).apply()
+        }
+
+    var payoutsServerEnabled: Boolean
+        get() = prefs.getBoolean("payouts_server", true)
+        set(v) = prefs.edit().putBoolean("payouts_server", v).apply()
+
+    /** SIM à utiliser pour un opérateur : -1 = automatique, 0 = SIM 1, 1 = SIM 2. */
+    fun simFor(op: String): Int = prefs.getInt("sim_$op", -1)
+    fun setSim(op: String, slot: Int) = prefs.edit().putInt("sim_$op", slot).apply()
+
+    /** Résultat d'envoi pas encore transmis au site (coupure réseau) : renvoyé avant tout nouvel envoi. */
+    var pendingPayoutReport: String?
+        get() = prefs.getString("payout_report", null)
+        set(v) = prefs.edit().putString("payout_report", v).apply()
+
     fun notifAppFor(packageName: String): NotifApp? = notificationApps.firstOrNull { app ->
         try {
             Pattern.compile(app.packagePattern, Pattern.CASE_INSENSITIVE).matcher(packageName).find()

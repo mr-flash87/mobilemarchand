@@ -86,6 +86,57 @@ function api_merchant(string $method, array $parts): never
             }
             json_out(payment_public(payment_find($ref)));
         }
+        if ($method === 'POST' && $action === 'refund') {
+            $in = json_input();
+            try {
+                $o = payout_refund($p, isset($in['amount']) && is_numeric($in['amount']) ? (float)$in['amount'] : null, $merchant, 'api', mb_substr((string)($in['reason'] ?? ''), 0, 120));
+                if (!empty($in['callback_url']) && filter_var($in['callback_url'], FILTER_VALIDATE_URL)) {
+                    db_update('payouts', ['callback_url' => $in['callback_url']], 'id = :id', ['id' => $o['id']]);
+                    $o['callback_url'] = $in['callback_url'];
+                }
+            } catch (SubscriptionRequired $e) {
+                json_error('subscription_required', $e->getMessage(), 402);
+            } catch (InvalidArgumentException $e) {
+                json_error('invalid_request', $e->getMessage(), 422);
+            }
+            json_out(payout_public($o), 201);
+        }
+    }
+    if ($resource === 'payouts' || $resource === 'refunds') {
+        if ($method === 'POST' && $ref === null && $resource === 'payouts') {
+            try {
+                $o = payout_create(json_input(), $merchant, 'api');
+            } catch (SubscriptionRequired $e) {
+                json_error('subscription_required', $e->getMessage(), 402);
+            } catch (InvalidArgumentException $e) {
+                json_error('invalid_request', $e->getMessage(), 422);
+            }
+            json_out(payout_public($o), 201);
+        }
+        if ($method === 'GET' && $ref === null) {
+            $limit = min(100, max(1, (int)($_GET['limit'] ?? 20)));
+            $params = [$merchant['id']];
+            $where = 'merchant_id = ?' . ($resource === 'refunds' ? " AND kind = 'refund'" : '');
+            if (!empty($_GET['status'])) {
+                $where .= ' AND status = ?';
+                $params[] = (string)$_GET['status'];
+            }
+            $rows = q_all("SELECT * FROM payouts WHERE $where ORDER BY id DESC LIMIT $limit", $params);
+            json_out(['object' => 'list', 'data' => array_map('payout_public', $rows)]);
+        }
+        $o = $ref ? q_one('SELECT * FROM payouts WHERE reference = ? AND merchant_id = ?', [$ref, $merchant['id']]) : null;
+        if (!$o) {
+            json_error('not_found', 'Envoi introuvable.', 404);
+        }
+        if ($method === 'GET' && $action === null) {
+            json_out(payout_public($o));
+        }
+        if ($method === 'POST' && $action === 'cancel') {
+            if (!payout_cancel($o, 'api')) {
+                json_error('invalid_state', 'Seul un envoi pas encore parti (à valider ou en file) peut être annulé.', 409);
+            }
+            json_out(payout_public(payout_find($ref)));
+        }
     }
     if ($resource === 'account' && $method === 'GET') {
         json_out([
@@ -97,6 +148,12 @@ function api_merchant(string $method, array $parts): never
             'currency' => setting('currency'),
             'limits' => ['min_amount' => (float)setting('min_amount'), 'max_amount' => (float)setting('max_amount')],
             'payment_expiry_minutes' => (int)setting('payment_expiry_minutes'),
+            'payouts' => [
+                'enabled' => payouts_enabled(),
+                'operators' => array_values(array_column(array_filter(operators(true, merchant_scope($merchant)), 'operator_can_payout'), 'code')),
+                'max_amount' => (float)setting('payout_max', '200000'),
+                'daily_limit' => (float)setting('payout_daily_limit', '500000'),
+            ],
         ]);
     }
     json_error('not_found', 'Route inconnue.', 404);
@@ -170,9 +227,17 @@ function device_config(?array $device = null): array
             $apps[] = ['package' => $o['app_package'], 'sender' => $o['name']];
         }
     }
+    // Envois d'argent : opérateurs que ce téléphone peut utiliser (le code secret reste dans le téléphone).
+    $payoutOps = [];
+    foreach (operators(true, $scope) as $o) {
+        if (operator_can_payout($o)) {
+            $payoutOps[] = ['code' => $o['code'], 'name' => $o['name'], 'ussd' => $o['payout_ussd']];
+        }
+    }
     return [
         'allowed_senders' => array_values(array_unique($senders)),
         'notification_apps' => $apps,
+        'payouts' => ['enabled' => payouts_enabled(), 'operators' => $payoutOps, 'queued' => payouts_queued_count($scope)],
         'heartbeat_seconds' => 120,
         'server_time' => time(),
         'app_name' => app_name(),
@@ -223,6 +288,20 @@ function api_device(string $method, array $parts): never
     if ($action === 'heartbeat') {
         run_maintenance_throttled();
         json_out(['ok' => true, 'config' => device_config($device)]);
+    }
+
+    if ($action === 'payouts') {
+        // POST /api/device/payouts/next   { operators: ["orange","moov"] }  -> prochain envoi à faire
+        // POST /api/device/payouts/{ref}/result { status: done|failed|unknown, message, pin_sent }
+        $sub = $parts[1] ?? '';
+        if ($sub === 'next') {
+            json_out(['payout' => payout_claim($device, (array)($in['operators'] ?? []))]);
+        }
+        $o = $sub !== '' ? payout_find($sub) : null;
+        if ($o && ($parts[2] ?? '') === 'result') {
+            json_out(payout_report($o, $device, (string)($in['status'] ?? 'unknown'), mb_substr((string)($in['message'] ?? ''), 0, 1000), !empty($in['pin_sent'])));
+        }
+        json_error('not_found', 'Envoi introuvable.', 404);
     }
 
     if ($action === 'sms') {

@@ -75,6 +75,9 @@ function merchant_route(string $method, array $p): void
         case 'telegram':
             admin_telegram($method);
             return;
+        case 'payouts':
+            admin_payouts($method);
+            return;
         case 'api':
             merchant_api($method, $m);
             return;

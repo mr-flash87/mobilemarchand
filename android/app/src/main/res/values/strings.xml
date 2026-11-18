@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Passerelle Pay</string>
+    <string name="ussd_service_description">Envois d\'argent automatiques : l\'application compose le code USSD de l\'opérateur (Orange, Moov…), saisit votre code secret et lit la réponse, uniquement pendant un remboursement ou un envoi demandé depuis votre espace. Aucune autre fenêtre n\'est lue.</string>
 </resources>

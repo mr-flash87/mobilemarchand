@@ -228,6 +228,33 @@ function db_schema(string $driver): array
         expires_at $dt NOT NULL,
         created_at $dt NOT NULL
     )$engine";
+    $t[] = "CREATE TABLE IF NOT EXISTS payouts (
+        id $pk,
+        reference VARCHAR(40) NOT NULL UNIQUE,
+        merchant_id $fk NULL,
+        scope_id $fk NULL,
+        payment_id $fk NULL,
+        kind VARCHAR(20) NOT NULL DEFAULT 'payout',
+        operator VARCHAR(30) NOT NULL,
+        phone VARCHAR(20) NOT NULL,
+        amount DECIMAL(14,2) NOT NULL,
+        external_ref VARCHAR(190) NULL,
+        description VARCHAR(255) NULL,
+        callback_url VARCHAR(500) NULL,
+        metadata $text NULL,
+        status VARCHAR(20) NOT NULL,
+        device_id $fk NULL,
+        attempts SMALLINT NOT NULL DEFAULT 0,
+        result_text VARCHAR(500) NULL,
+        operator_txn_id VARCHAR(100) NULL,
+        created_by VARCHAR(60) NULL,
+        approved_by VARCHAR(60) NULL,
+        created_at $dt NOT NULL,
+        approved_at $dt NULL,
+        sent_at $dt NULL,
+        completed_at $dt NULL
+    )$engine";
+    $t[] = "CREATE INDEX idx_payout_queue ON payouts (status, scope_id)";
     $t[] = "CREATE TABLE IF NOT EXISTS announcements (
         id $pk,
         title VARCHAR(190) NOT NULL,
@@ -255,7 +282,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 12; // 11 : bot Telegram ; 12 : annonces (tables créées par db_install_schema)
+const SCHEMA_VERSION = 13; // 11 : bot Telegram ; 12 : annonces ; 13 : envois d'argent (payouts)
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -327,6 +354,15 @@ function db_migrate(): void
     }
     if ($v < 9) {
         sms_rules_upgrade_from_defaults(['Wave - argent reçu']);
+    }
+    if ($v < 13) {
+        // Envois d'argent : code USSD d'envoi par opérateur (le code secret reste dans le téléphone).
+        db_add_column('operators', 'payout_ussd', 'VARCHAR(255) NULL', 'TEXT NULL');
+        db_add_column('operators', 'payout_success', 'VARCHAR(255) NULL', 'TEXT NULL');
+        db_add_column('webhook_deliveries', 'merchant_id', 'INT UNSIGNED NULL', 'INTEGER NULL');
+        q("UPDATE operators SET payout_ussd = ? WHERE code = 'orange' AND (payout_ussd IS NULL OR payout_ussd = '')", ['*144*2*1*{number}*{amount}#']);
+        q("UPDATE operators SET payout_ussd = ? WHERE code = 'moov' AND (payout_ussd IS NULL OR payout_ussd = '')", ['*555*2*1*{number}*{amount}#']);
+        operators_reset_cache();
     }
     // Opérateurs par défaut de la plateforme (une fois toutes les colonnes créées).
     operators_reset_cache();

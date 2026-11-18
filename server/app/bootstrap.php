@@ -29,5 +29,6 @@ require APP_DIR . '/payments.php';
 require APP_DIR . '/webhooks.php';
 require APP_DIR . '/webpush.php';
 require APP_DIR . '/telegram.php';
+require APP_DIR . '/payouts.php';
 
 db_migrate();
