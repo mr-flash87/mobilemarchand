@@ -12,8 +12,8 @@ android {
         applicationId = "com.flashpay.gateway"
         minSdk = 23
         targetSdk = 35
-        versionCode = 17
-        versionName = "2.6.7"
+        versionCode = 18
+        versionName = "2.6.8"
     }
 
     // Clé de signature fixe (fournie par GitHub via le secret ANDROID_KEYSTORE_B64) :

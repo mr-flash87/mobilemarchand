@@ -384,6 +384,39 @@ object WaveDriver {
         n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
     }
 
+    /**
+     * Saisie par « coller » (presse-papiers) : passe par le même chemin qu'une frappe au clavier,
+     * donc Wave voit la valeur (calcul du montant reçu, bouton actif). Sinon : saisie lettre par lettre.
+     */
+    private fun pasteText(ctx: Context, n: AccessibilityNodeInfo, v: String): String {
+        n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        Thread.sleep(150)
+        val len = n.text?.length ?: 0
+        if (len > 0) {
+            val sel = Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 0)
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, len)
+            }
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, sel)
+        }
+        val ok = try {
+            val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            val done = CountDownLatch(1)
+            Handler(Looper.getMainLooper()).post {
+                try { cm.setPrimaryClip(android.content.ClipData.newPlainText("montant", v)) } finally { done.countDown() }
+            }
+            done.await(2, TimeUnit.SECONDS)
+            Thread.sleep(150)
+            n.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+        } catch (_: Exception) {
+            false
+        }
+        if (ok) return "collé"
+        typeText(n, v)
+        return "tapé"
+    }
+
     /** Saisie lettre par lettre, comme une personne (Wave valide le champ à chaque touche). */
     private fun typeText(n: AccessibilityNodeInfo, v: String) {
         n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
@@ -417,7 +450,15 @@ object WaveDriver {
         val g = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 80))
             .build()
-        return svc.dispatchGesture(g, null, null)
+        val done = CountDownLatch(1)
+        var completed = false
+        val sent = svc.dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) { completed = true; done.countDown() }
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) { done.countDown() }
+        }, Handler(Looper.getMainLooper()))
+        if (!sent) return false
+        done.await(2, TimeUnit.SECONDS)
+        return completed
     }
 
     /** Appui « au doigt » d'abord (le plus fiable avec Wave), sinon clic d'accessibilité. */
@@ -451,6 +492,8 @@ object WaveDriver {
         val store = Store.get(ctx)
         fun log(line: String) = store.log("🌊 " + line.take(150))
         val svc = UssdAccessibilityService.instance ?: return Triple("failed", "Accessibilité désactivée : activez « Passerelle Pay : envois d'argent »", false)
+        val gestures = (svc.serviceInfo?.capabilities ?: 0) and android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES != 0
+        log("Wave : début · appui au doigt autorisé = ${if (gestures) "oui" else "NON (désactivez puis réactivez l'accessibilité Passerelle Pay)"}")
         val pkg = wavePackage(ctx) ?: return Triple("failed", "Application Wave introuvable sur ce téléphone", false)
         val launch = ctx.packageManager.getLaunchIntentForPackage(pkg) ?: return Triple("failed", "Impossible d'ouvrir Wave", false)
         val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -543,7 +586,8 @@ object WaveDriver {
                             // (Wave n'accepte que des montants finissant par 0 ou 5). Wave calcule « Montant reçu ».
                             val target = edits.firstOrNull()
                             if (target != null) {
-                                typeText(target, sendAmount.toString())
+                                val how = pasteText(ctx, target, sendAmount.toString())
+                                log("Wave : montant envoyé $how")
                                 amountDone = true
                                 Thread.sleep(1500)
                                 log("Wave : montant envoyé « ${target.text} » (reçu par le client : ${edits.getOrNull(1)?.text ?: "?"})")
@@ -564,9 +608,10 @@ object WaveDriver {
                         lastSeen = "écran nom/téléphone, Suivant actif=${isActive(next)}, champs=${edits.size}, appuis=$formPresses · " + all.take(200)
                         val phoneOk = edits.size >= 2 && (edits[1].text?.toString() ?: "").filter { it.isDigit() }.endsWith(j.phone)
                         if (edits.size >= 2 && (!formDone || (!phoneOk && formTries < 3))) {
-                            typeText(edits[0], NAME)
+                            val h1 = pasteText(ctx, edits[0], NAME)
                             Thread.sleep(300)
-                            typeText(edits[1], if (formTries == 0) j.phone else phoneFmt)
+                            val h2 = pasteText(ctx, edits[1], if (formTries == 0) j.phone else phoneFmt)
+                            log("Wave : saisie nom $h1, numéro $h2")
                             formDone = true
                             formTries++
                             log("Wave : nom et numéro saisis : « ${edits[0].text} » / « ${edits[1].text} »")

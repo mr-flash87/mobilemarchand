@@ -792,6 +792,15 @@ private fun PayoutCard(activity: MainActivity, state: UiState, toast: (String) -
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp)
             )
         }
+        val svcInfo = UssdAccessibilityService.instance?.serviceInfo
+        if (state.accessibilityOn && svcInfo != null &&
+            (svcInfo.capabilities and android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES) == 0) {
+            Notice(
+                "Pour Wave, l'application doit pouvoir appuyer sur les boutons : ouvrez l'Accessibilité, DÉSACTIVEZ « Passerelle Pay : envois d'argent » puis RÉACTIVEZ-le.",
+                Brand.Amber, Brand.AmberSoft, Icons.Filled.Warning
+            )
+            Spacer(Modifier.height(6.dp))
+        }
         state.payoutOps.forEach { op -> PinRow(activity, op, op.code in state.payoutPins, toast, refresh) }
         Spacer(Modifier.height(8.dp))
         Notice(
