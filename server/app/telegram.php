@@ -1047,3 +1047,103 @@ function tg_help(): string
         . "/delier : délier cette discussion\n\n"
         . '🔔 Les alertes arrivent ici automatiquement : paiement reçu, SMS à vérifier, argent reçu sans paiement…';
 }
+
+/* ------------------------------------------------------------------
+ *  Annonces : mises à jour de l'application, informations aux marchands
+ * ------------------------------------------------------------------ */
+
+/**
+ * Envoie un message à toutes les discussions reliées.
+ * $audience : 'all' (tout le monde), 'admin' (discussions de l'administration), 'merchants' (marchands inscrits).
+ */
+function tg_broadcast(string $html, array $buttons = [], string $audience = 'all'): int
+{
+    if (!tg_enabled()) {
+        return 0;
+    }
+    $where = ['all' => '1=1', 'admin' => 'merchant_id IS NULL', 'merchants' => 'merchant_id IS NOT NULL'][$audience] ?? '1=1';
+    $sent = 0;
+    foreach (q_all("SELECT * FROM telegram_chats WHERE $where ORDER BY id") as $c) {
+        $r = tg_api('sendMessage', [
+            'chat_id' => $c['chat_id'],
+            'text' => $html,
+            'parse_mode' => 'HTML',
+            'disable_web_page_preview' => true,
+            'reply_markup' => tg_kb($buttons ? [$buttons] : []),
+        ], 6);
+        if (!empty($r['ok'])) {
+            $sent++;
+        } elseif (preg_match('/blocked|kicked|not found|deactivated|not a member/i', (string)($r['description'] ?? ''))) {
+            q('DELETE FROM telegram_chats WHERE id = ?', [$c['id']]);
+        }
+        usleep(50000); // limite de Telegram : ~30 messages par seconde
+    }
+    return $sent;
+}
+
+/** Envoie une annonce et la garde dans l'historique. */
+function announce(string $title, string $body, ?string $link, string $linkLabel = '📥 Télécharger', string $audience = 'all'): int
+{
+    $html = '📢 <b>' . tg_h($title) . '</b>' . (trim($body) !== '' ? "\n\n" . tg_h(trim($body)) : '')
+        . ($link ? "\n\n🔗 " . tg_h($link) : '');
+    $buttons = $link && str_starts_with($link, 'https://') ? [[$linkLabel ?: '🔗 Ouvrir', $link]] : [];
+    $sent = tg_broadcast($html, $buttons, $audience);
+    db_insert('announcements', [
+        'title' => mb_substr($title, 0, 190),
+        'body' => $body,
+        'link' => $link ? mb_substr($link, 0, 500) : null,
+        'audience' => $audience,
+        'sent' => $sent,
+        'created_at' => now(),
+    ]);
+    return $sent;
+}
+
+/** Dernière version de l'application publiée par GitHub (downloads/version.json), ou null. */
+function app_release_info(): ?array
+{
+    $f = APP_ROOT . '/downloads/version.json';
+    if (!is_file($f)) {
+        return null;
+    }
+    $j = json_decode((string)file_get_contents($f), true);
+    if (!is_array($j) || empty($j['version'])) {
+        return null;
+    }
+    $j['url'] = abs_url('downloads/' . ($j['file'] ?? 'smspay-gateway.apk'));
+    return $j;
+}
+
+/** Texte de l'annonce d'une nouvelle version de l'application. */
+function app_release_message(array $r): array
+{
+    $notes = array_values(array_filter(array_map('trim', preg_split('/\R/', (string)($r['notes'] ?? '')))));
+    $body = $notes ? "Ce qui change :\n" . implode("\n", array_map(fn($l) => '• ' . ltrim($l, "-•* "), $notes)) : '';
+    $body .= "\n\nComment mettre à jour : ouvrez le lien sur le téléphone passerelle, puis installez le fichier.";
+    if (empty($r['fixed_signature'])) {
+        $body .= "\n⚠️ Pour cette version, désinstallez d'abord l'ancienne application, installez la nouvelle, puis associez-la de nouveau (Téléphones > Nouveau code) et réactivez l'accès aux notifications.";
+    }
+    return ['🆕 Mise à jour de l\'application passerelle : version ' . $r['version'], trim($body)];
+}
+
+/** Annonce automatiquement une nouvelle version de l'application (appelé par les tâches périodiques). */
+function app_release_check(bool $force = false): bool
+{
+    try {
+        $r = app_release_info();
+        if (!$r || !tg_enabled() || (!$force && setting('auto_announce_app', '1') !== '1')) {
+            return false;
+        }
+        $key = $r['version'] . '#' . ($r['code'] ?? '') . '#' . ($r['commit'] ?? '');
+        if (!$force && setting('app_release_announced') === $key) {
+            return false;
+        }
+        setting_set('app_release_announced', $key); // d'abord : jamais deux annonces pour la même version
+        [$title, $body] = app_release_message($r);
+        announce($title, $body, $r['url'], '📥 Télécharger la version ' . $r['version']);
+        return true;
+    } catch (Throwable $e) {
+        log_line('annonce version: ' . $e->getMessage());
+        return false;
+    }
+}

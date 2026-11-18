@@ -47,6 +47,15 @@ jobs:
         run: |
           mkdir -p ../apk-out
           cp smspay-gateway.apk ../apk-out/smspay-gateway.apk
+          # Fiche de version : le site la lit et annonce la mise à jour sur Telegram.
+          VNAME=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          VCODE=$(grep -oP 'versionCode = \K[0-9]+' app/build.gradle.kts)
+          FIXED=$([ -n "${ANDROID_KEYSTORE_PATH:-}" ] && echo true || echo false)
+          touch release-notes.txt
+          jq -n --arg v "$VNAME" --argjson c "$VCODE" --rawfile notes release-notes.txt --argjson fixed "$FIXED" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg sha "$GITHUB_SHA" \
+            '{version:$v, code:$c, notes:$notes, fixed_signature:$fixed, date:$date, commit:$sha, file:"smspay-gateway.apk"}' > ../apk-out/version.json
+          cat ../apk-out/version.json
       # Met l'APK en téléchargement sur le site : <site>/pay/downloads/smspay-gateway.apk
       - name: Publier l'APK sur le site
         if: github.ref == 'refs/heads/main'

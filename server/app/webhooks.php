@@ -122,5 +122,6 @@ function run_maintenance(): array
     return [
         'expired' => payments_expire(),
         'webhooks_retried' => webhooks_retry_due(),
+        'app_release_announced' => app_release_check(),
     ];
 }

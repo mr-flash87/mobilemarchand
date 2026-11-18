@@ -678,6 +678,28 @@ function admin_telegram(string $method): void
             $_SESSION['tg_code'] = tg_new_link_code($scope, empty($_POST['read_only']));
             aredirect('telegram#lier');
         }
+        if ($a === 'announce' && is_admin_ctx()) {
+            $title = trim((string)($_POST['title'] ?? ''));
+            $link = trim((string)($_POST['link'] ?? ''));
+            if ($title === '') {
+                flash('Donnez un titre à l\'annonce.', 'err');
+            } elseif ($link !== '' && !preg_match('#^https://#', $link)) {
+                flash('Le lien doit commencer par https://', 'err');
+            } else {
+                $n = announce($title, (string)($_POST['body'] ?? ''), $link ?: null, trim((string)($_POST['link_label'] ?? '')) ?: '🔗 Ouvrir', (string)($_POST['audience'] ?? 'all'));
+                flash("Annonce envoyée à $n discussion(s) Telegram.", $n > 0 ? 'ok' : 'err');
+            }
+            aredirect('telegram#annonces');
+        }
+        if ($a === 'announce_app' && is_admin_ctx()) {
+            flash(app_release_check(true) ? 'Annonce de la nouvelle version envoyée.' : 'Aucune version de l\'application trouvée sur le site.', 'ok');
+            aredirect('telegram#annonces');
+        }
+        if ($a === 'auto_announce' && is_admin_ctx()) {
+            setting_set('auto_announce_app', !empty($_POST['auto']) ? '1' : '0');
+            flash('Réglage enregistré.');
+            aredirect('telegram#annonces');
+        }
         if ($a === 'test') {
             $n = tg_notify('🔔 Test de notification', 'Les paiements reçus seront annoncés ici.', '', 'test', $scope);
             flash($n > 0 ? "Message de test envoyé à $n discussion(s)." : 'Aucune discussion n\'a reçu le test (notifications coupées ou bot retiré ?).', $n > 0 ? 'ok' : 'err');
@@ -701,5 +723,18 @@ function admin_telegram(string $method): void
     $cp = [];
     $chats = q_all('SELECT * FROM telegram_chats WHERE ' . scope_sql('merchant_id', $scope, $cp) . ' ORDER BY id', $cp);
     $webhook = is_admin_ctx() && tg_enabled() ? (tg_api('getWebhookInfo')['result'] ?? null) : null;
-    admin_page('admin_telegram', 'Telegram', compact('code', 'chats', 'webhook'));
+    $release = null;
+    $history = [];
+    $counts = ['all' => 0, 'admin' => 0, 'merchants' => 0];
+    if (is_admin_ctx()) {
+        app_release_check(); // annonce une nouvelle version publiée depuis le dernier passage
+        $release = app_release_info();
+        $history = q_all('SELECT * FROM announcements ORDER BY id DESC LIMIT 10');
+        $counts = [
+            'all' => (int)q_val('SELECT COUNT(*) FROM telegram_chats'),
+            'admin' => (int)q_val('SELECT COUNT(*) FROM telegram_chats WHERE merchant_id IS NULL'),
+            'merchants' => (int)q_val('SELECT COUNT(*) FROM telegram_chats WHERE merchant_id IS NOT NULL'),
+        ];
+    }
+    admin_page('admin_telegram', 'Telegram', compact('code', 'chats', 'webhook', 'release', 'history', 'counts'));
 }

@@ -228,6 +228,15 @@ function db_schema(string $driver): array
         expires_at $dt NOT NULL,
         created_at $dt NOT NULL
     )$engine";
+    $t[] = "CREATE TABLE IF NOT EXISTS announcements (
+        id $pk,
+        title VARCHAR(190) NOT NULL,
+        body $text NULL,
+        link VARCHAR(500) NULL,
+        audience VARCHAR(20) NOT NULL DEFAULT 'all',
+        sent INT NOT NULL DEFAULT 0,
+        created_at $dt NOT NULL
+    )$engine";
     return $t;
 }
 
@@ -246,7 +255,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 11; // 11 : bot Telegram (tables créées par db_install_schema)
+const SCHEMA_VERSION = 12; // 11 : bot Telegram ; 12 : annonces (tables créées par db_install_schema)
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {

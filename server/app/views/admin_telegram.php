@@ -86,6 +86,59 @@ $isAdmin = is_admin_ctx();
     <?php endif; ?>
   </section>
 
+  <?php if ($isAdmin): ?>
+  <section class="card" id="annonces">
+    <h2>Annonces et mises à jour</h2>
+    <p class="small muted">Envoyées sur Telegram à toutes les discussions reliées : les vôtres et celles de vos marchands (<?= (int)$counts['all'] ?> en tout).</p>
+
+    <div class="callout"><?= icon('phone', 18) ?><div style="flex:1">
+      <?php if ($release): $key = $release['version'] . '#' . ($release['code'] ?? '') . '#' . ($release['commit'] ?? ''); ?>
+        <strong>Application passerelle : version <?= h($release['version']) ?></strong>
+        <span class="small muted">· publiée le <?= h(substr(fmt_dt(gmdate('Y-m-d H:i:s', strtotime((string)$release['date']))), 0, 16)) ?></span>
+        <?= setting('app_release_announced') === $key ? '<span class="badge b-paid">Annoncée</span>' : '<span class="badge b-pending">Pas encore annoncée</span>' ?>
+        <?php if (!empty($release['notes'])): ?><div class="small" style="margin-top:6px;white-space:pre-line"><?= h(trim($release['notes'])) ?></div><?php endif; ?>
+      <?php else: ?>
+        <strong>Application passerelle</strong> <span class="small muted">· la fiche de version apparaîtra à la prochaine publication de l'application.</span>
+      <?php endif; ?>
+      <form method="post" class="row" style="margin-top:10px;gap:10px">
+        <?= csrf_field() ?>
+        <label class="check" style="margin:0"><input type="checkbox" name="auto" value="1" <?= setting('auto_announce_app', '1') === '1' ? 'checked' : '' ?> onchange="this.form.querySelector('[value=auto_announce]').click()">
+          <span>Annoncer automatiquement chaque nouvelle version</span></label>
+        <button class="btn sm" name="action" value="auto_announce" style="display:none">OK</button>
+        <?php if ($release): ?><button class="btn sm" name="action" value="announce_app" onclick="return confirm('Envoyer l\'annonce de la version <?= h($release['version']) ?> sur Telegram ?')">📢 Annoncer cette version maintenant</button><?php endif; ?>
+      </form>
+    </div></div>
+
+    <form method="post" style="margin-top:16px">
+      <?= csrf_field() ?><input type="hidden" name="action" value="announce">
+      <h3 style="margin:0 0 6px">Nouvelle annonce</h3>
+      <div class="grid g2">
+        <div style="grid-column:1/-1"><label>Titre</label><input type="text" name="title" required maxlength="190" placeholder="Ex. Nouvelle page de paiement plus rapide"></div>
+        <div style="grid-column:1/-1"><label>Message</label><textarea name="body" rows="4" style="min-height:90px;font-family:inherit" placeholder="Ce qui change, ce que vos marchands doivent faire…"></textarea></div>
+        <div><label>Lien (optionnel)</label><input type="url" name="link" placeholder="https://…"></div>
+        <div><label>Texte du bouton</label><input type="text" name="link_label" placeholder="📥 Télécharger" maxlength="60"></div>
+        <div><label>Destinataires</label>
+          <select name="audience">
+            <option value="all">Tout le monde (<?= (int)$counts['all'] ?>)</option>
+            <option value="merchants">Marchands inscrits seulement (<?= (int)$counts['merchants'] ?>)</option>
+            <option value="admin">Mes discussions seulement (<?= (int)$counts['admin'] ?>)</option>
+          </select></div>
+      </div>
+      <p></p><button class="btn primary" onclick="return confirm('Envoyer cette annonce sur Telegram ?')"><?= icon('send', 16) ?> Envoyer l'annonce</button>
+    </form>
+
+    <?php if ($history): ?>
+      <h3 style="margin:18px 0 6px">Dernières annonces</h3>
+      <?php foreach ($history as $an): ?>
+        <div style="padding:8px 0;border-top:1px solid var(--line)">
+          <strong><?= h($an['title']) ?></strong>
+          <span class="small muted">· <?= h(substr(fmt_dt($an['created_at']), 0, 16)) ?> · <?= (int)$an['sent'] ?> discussion(s)</span>
+        </div>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </section>
+  <?php endif; ?>
+
   <section class="card">
     <h2>Ce que vous pouvez faire dans Telegram</h2>
     <div class="grid g2 small">
