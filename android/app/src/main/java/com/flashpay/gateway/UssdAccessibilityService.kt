@@ -15,6 +15,11 @@ class UssdAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        // Accès aux fenêtres (dont le clavier) pour appuyer sur « Entrée » pendant un envoi Wave.
+        try {
+            serviceInfo = serviceInfo.apply { flags = flags or android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
+        } catch (_: Exception) {
+        }
     }
 
     override fun onDestroy() {

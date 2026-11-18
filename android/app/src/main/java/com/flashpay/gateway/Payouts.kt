@@ -461,6 +461,34 @@ object WaveDriver {
         return completed
     }
 
+    private val ENTER_KEY = Regex("^(entr[ée]e|enter|retour|return|ok|termin[ée]|done|suivant|next|go|aller|valider|↵|⏎)$", RegexOption.IGNORE_CASE)
+
+    private fun imeRoot(svc: AccessibilityService): AccessibilityNodeInfo? = try {
+        svc.windows.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_INPUT_METHOD }?.root
+    } catch (_: Exception) {
+        null
+    }
+
+    /** Touche « Entrée » du clavier (comme une personne qui valide le numéro). */
+    private fun pressEnter(svc: AccessibilityService, field: AccessibilityNodeInfo?): String {
+        if (field != null && Build.VERSION.SDK_INT >= 30 &&
+            field.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)) return "Entrée (action)"
+        val ime = imeRoot(svc) ?: return "clavier non visible"
+        val keys = mutableListOf<AccessibilityNodeInfo>().also { flatten(ime, it) }
+        val key = keys.firstOrNull { ENTER_KEY.matches(label(it)) } ?: return "touche Entrée introuvable (${keys.size} touches)"
+        return "touche « ${label(key)} » → " + tapFirst(svc, key)
+    }
+
+    /** Ferme le clavier (le champ perd le focus : Wave valide le numéro). */
+    private fun closeKeyboard(svc: AccessibilityService, field: AccessibilityNodeInfo?): String {
+        field?.performAction(AccessibilityNodeInfo.ACTION_CLEAR_FOCUS)
+        if (imeRoot(svc) != null) {
+            svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            return "clavier fermé"
+        }
+        return "focus retiré"
+    }
+
     /** Appui « au doigt » d'abord (le plus fiable avec Wave), sinon clic d'accessibilité. */
     private fun tapFirst(svc: AccessibilityService, n: AccessibilityNodeInfo?): String {
         if (n == null) return "bouton introuvable"
@@ -507,7 +535,8 @@ object WaveDriver {
         var formPresses = 0
         var sendPresses = 0
         // Montant envoyé = montant + frais (ex. 0,5 %), arrondi au multiple de 5 supérieur (100 -> 105, 1000 -> 1005).
-        val sendAmount = (Math.ceil(j.amount * (1 + j.feePercent / 100.0) / 5.0) * 5).toInt()
+        val fee = if (j.feePercent > 0) j.feePercent else 0.5
+        val sendAmount = (Math.ceil(j.amount * (1 + fee / 100.0) / 5.0) * 5).toInt()
         var pinAt = 0L
         var initialTop: String? = null
         var lastSeen = ""
@@ -561,7 +590,7 @@ object WaveDriver {
                     sent -> {
                         val top = topTransaction(nodes)
                         if (top.isNotEmpty() && top.contains(phoneFmt) && top != initialTop) {
-                            return Triple("success", "Wave : envoyé $sendAmount F (le client reçoit ~${j.amount} F) à $phoneFmt · $top", true)
+                            return Triple("success", "Wave : ${j.amount} F reçus par $phoneFmt · $top", true)
                         }
                         if (SUCCESS.containsMatchIn(all) && find(Regex("^Montant Re", RegexOption.IGNORE_CASE)) == null) {
                             find(Regex("^(Terminé|Fermer|OK|Retour à l'accueil)$", RegexOption.IGNORE_CASE))?.let { tapFirst(svc, it) }
@@ -582,15 +611,21 @@ object WaveDriver {
                         val btn = nodes.firstOrNull { label(it).equals("Envoyer", true) }
                         lastSeen = "écran montant, Envoyer actif=${isActive(btn)}, champs=${edits.size} · " + all.take(220)
                         if (!amountDone) {
-                            // 1er champ = « Montant envoyé » : montant + frais Wave, arrondi au multiple de 5 supérieur
-                            // (Wave n'accepte que des montants finissant par 0 ou 5). Wave calcule « Montant reçu ».
-                            val target = edits.firstOrNull()
-                            if (target != null) {
-                                val how = pasteText(ctx, target, sendAmount.toString())
-                                log("Wave : montant envoyé $how")
-                                amountDone = true
+                            // « Montant reçu » (2e champ) = montant demandé : le client reçoit EXACTEMENT ce montant,
+                            // Wave calcule lui-même « Montant envoyé » (frais compris, arrondi à 0 ou 5).
+                            val recv = if (edits.size >= 2) edits[1] else null
+                            if (recv != null) {
+                                val how = pasteText(ctx, recv, j.amount.toString())
                                 Thread.sleep(1500)
-                                log("Wave : montant envoyé « ${target.text} » (reçu par le client : ${edits.getOrNull(1)?.text ?: "?"})")
+                                val fresh = mutableListOf<AccessibilityNodeInfo>().also { l -> svc.rootInActiveWindow?.let { flatten(it, l) } }.filter { it.isEditable }
+                                val envoye = fresh.getOrNull(0)?.text?.toString() ?: ""
+                                log("Wave : montant reçu $how « ${fresh.getOrNull(1)?.text ?: recv.text} », montant envoyé calculé « $envoye »")
+                                if (envoye.none { it.isDigit() } && fresh.isNotEmpty()) {
+                                    // Wave n'a pas calculé : on remplit « Montant envoyé » avec les frais, arrondi au multiple de 5.
+                                    pasteText(ctx, fresh[0], sendAmount.toString())
+                                    log("Wave : secours, montant envoyé $sendAmount")
+                                }
+                                amountDone = true
                             }
                             continue
                         }
@@ -622,7 +657,16 @@ object WaveDriver {
                             return Triple("failed", "Wave : le bouton « Suivant » ne réagit pas (6 appuis). $lastSeen", false)
                         }
                         formPresses++
-                        log("Wave : Suivant (actif=${isActive(next)}) → ${tapFirst(svc, next)}")
+                        when (formPresses) {
+                            1 -> log("Wave : Entrée sur le numéro → ${pressEnter(svc, edits.getOrNull(1))}")
+                            3 -> log("Wave : fermeture du clavier → ${closeKeyboard(svc, edits.getOrNull(1))}")
+                            else -> {}
+                        }
+                        Thread.sleep(1200)
+                        val cur = mutableListOf<AccessibilityNodeInfo>().also { l -> svc.rootInActiveWindow?.let { flatten(it, l) } }
+                        if (cur.none { Regex("^Nom complet", RegexOption.IGNORE_CASE).containsMatchIn(label(it)) }) continue // déjà passé
+                        val btn = cur.firstOrNull { label(it).equals("Suivant", true) } ?: next
+                        log("Wave : Suivant (actif=${isActive(btn)}) → ${tapFirst(svc, btn)}")
                         Thread.sleep(2500)
                     }
                     find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)) != null ->

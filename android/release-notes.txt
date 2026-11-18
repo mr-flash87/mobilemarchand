@@ -1,3 +1,3 @@
-Envois Wave : le nom, le numéro et le montant sont maintenant « collés » (comme un copier-coller), pour que Wave les prenne en compte (calcul du montant reçu, bouton Suivant actif).
-L'application vérifie qu'elle a le droit d'appuyer sur les boutons. Si l'onglet Envois affiche un avertissement : Accessibilité > désactivez puis réactivez « Passerelle Pay : envois d'argent ».
+Envois Wave : après le numéro, l'application appuie sur « Entrée » du clavier (et le ferme si besoin) avant « Suivant ».
+Envois Wave : « Montant reçu » est rempli avec le montant demandé : le client reçoit exactement ce montant, Wave calcule lui-même le montant envoyé avec les frais.
 Mise à jour directe par-dessus l'ancienne version.
