@@ -150,6 +150,7 @@ function webpush_send(array $sub, array $message): int
  */
 function push_notify(string $title, string $body, string $path = '', string $tag = '', ?int $scope = null): int
 {
+    tg_notify($title, $body, $path, $tag, $scope); // mêmes alertes sur Telegram (privé ou groupe)
     if (!webpush_supported()) {
         return 0;
     }

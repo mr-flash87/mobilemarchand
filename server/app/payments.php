@@ -174,7 +174,7 @@ function payment_mark_paid(array $payment, ?array $sms, string $how = 'auto'): b
         $m = $payment['merchant_id'] ? q_val('SELECT name FROM merchants WHERE id = ?', [$payment['merchant_id']]) : null;
         push_notify(
             '💰 Paiement reçu : ' . fmt_amount($payment['amount'], 'F'),
-            'De ' . $payment['payer_phone'] . ($m ? ' · ' . $m : '') . ' · ' . $payment['reference'],
+            'De ' . ($payment['payer_phone'] ?: 'client') . ($m ? ' · ' . $m : '') . ' · ' . $payment['reference'],
             'payments/' . $payment['reference'],
             'pay-' . $payment['reference'],
             payment_scope($payment)
@@ -370,4 +370,58 @@ function payment_set_payer(array $p, string $phone, ?string $operatorCode): arra
     $p = payment_find($p['reference']);
     payment_try_late_match($p); // le client a peut-être déjà payé
     return payment_find($p['reference']);
+}
+
+/**
+ * Actions sur un SMS reçu (espace web et bot Telegram) : « match » (rapprocher d'un paiement),
+ * « approve » (SMS à vérifier : l'argent est bien arrivé), « ignore ».
+ * @return array{0: bool, 1: string} [succès, message à afficher]
+ */
+function sms_action(array $sms, string $action, string $reference = ''): array
+{
+    $smsScope = $sms['merchant_id'] !== null ? (int)$sms['merchant_id'] : null;
+    if ($action === 'match') {
+        $pay = payment_find(trim($reference));
+        if ($pay && payment_scope($pay) !== $smsScope) {
+            $pay = null; // le SMS et le paiement doivent appartenir au même marchand
+        }
+        if (!$pay) {
+            return [false, 'Référence de paiement introuvable.'];
+        }
+        if (!in_array($pay['status'], ['pending', 'expired'], true)) {
+            return [false, 'Ce paiement est déjà ' . status_label($pay['status']) . '.'];
+        }
+        if (in_array($sms['status'], ['matched', 'ignored', 'duplicate'], true)) {
+            return [false, 'Ce SMS est déjà ' . status_label($sms['status']) . '.'];
+        }
+        payment_mark_paid($pay, $sms, 'manual');
+        if ($sms['balance'] !== null && $sms['device_id']) {
+            device_set_balance((int)$sms['device_id'], $sms['operator'], (float)$sms['balance']);
+        }
+        return [true, 'SMS rapproché du paiement ' . $pay['reference'] . '.'];
+    }
+    if ($action === 'approve') {
+        if ($sms['status'] !== 'review') {
+            return [false, 'Ce SMS n\'est pas « à vérifier ».'];
+        }
+        // L'argent est bien arrivé : on resynchronise le solde puis on rapproche.
+        if ($sms['balance'] !== null && $sms['device_id']) {
+            device_set_balance((int)$sms['device_id'], $sms['operator'], (float)$sms['balance']);
+        }
+        db_update('sms_messages', ['status' => 'unmatched', 'note' => 'Vérifié par l\'admin'], 'id = :id', ['id' => $sms['id']]);
+        $sms = q_one('SELECT * FROM sms_messages WHERE id = ?', [$sms['id']]);
+        $pay = $sms['payment_id'] ? q_one('SELECT * FROM payments WHERE id = ?', [$sms['payment_id']]) : payment_match_for((float)$sms['amount'], $sms['phone'], $smsScope);
+        if ($pay && payment_mark_paid($pay, $sms, 'manual')) {
+            return [true, 'SMS validé et paiement ' . $pay['reference'] . ' confirmé.'];
+        }
+        return [true, 'SMS validé. Aucun paiement en attente correspondant : rapprochez-le manuellement si besoin.'];
+    }
+    if ($action === 'ignore') {
+        if ($sms['status'] === 'matched') {
+            return [false, 'Ce SMS a déjà validé un paiement.'];
+        }
+        db_update('sms_messages', ['status' => 'ignored', 'note' => 'Ignoré par l\'admin'], 'id = :id', ['id' => $sms['id']]);
+        return [true, 'SMS ignoré.'];
+    }
+    return [false, 'Action inconnue.'];
 }

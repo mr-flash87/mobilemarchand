@@ -211,6 +211,23 @@ function db_schema(string $driver): array
         sort_order INT NOT NULL DEFAULT 0,
         created_at $dt NOT NULL
     )$engine";
+    $t[] = "CREATE TABLE IF NOT EXISTS telegram_chats (
+        id $pk,
+        chat_id VARCHAR(30) NOT NULL UNIQUE,
+        merchant_id $fk NULL,
+        title VARCHAR(190) NULL,
+        chat_type VARCHAR(20) NULL,
+        notify SMALLINT NOT NULL DEFAULT 1,
+        can_act SMALLINT NOT NULL DEFAULT 1,
+        created_at $dt NOT NULL
+    )$engine";
+    $t[] = "CREATE TABLE IF NOT EXISTS telegram_links (
+        code VARCHAR(20) NOT NULL PRIMARY KEY,
+        merchant_id $fk NULL,
+        can_act SMALLINT NOT NULL DEFAULT 1,
+        expires_at $dt NOT NULL,
+        created_at $dt NOT NULL
+    )$engine";
     return $t;
 }
 
@@ -229,7 +246,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11; // 11 : bot Telegram (tables créées par db_install_schema)
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {

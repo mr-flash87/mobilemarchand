@@ -321,6 +321,7 @@ function icon(string $name, int $size = 18): string
         'check' => '<path d="m5 12.5 4.5 4.5L19 7"/>',
         'chart' => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
         'plus' => '<path d="M12 5v14M5 12h14"/>',
+        'send' => '<path d="M21.5 3 2.5 10.5l7 2.5M21.5 3l-4 18-8-8M21.5 3 9.5 13v6l3.5-3.5"/>',
         'arrow' => '<path d="M5 12h14M13 6l6 6-6 6"/>',
         'battery' => '<rect x="2.5" y="7" width="17" height="10" rx="2"/><path d="M22 11v2"/>',
     ][$name] ?? '';

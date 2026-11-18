@@ -68,6 +68,12 @@ try {
                 api_public($method, $rest);
             }
             json_error('not_found', 'Route inconnue.', 404);
+        case 'telegram':
+            if (($parts[1] ?? '') === 'webhook' && $method === 'POST') {
+                tg_webhook();
+            }
+            http_response_code(404);
+            exit;
         case 'cron':
             $key = (string)setting('cron_key');
             if ($key === '' || !hash_equals($key, (string)($_GET['key'] ?? ''))) {

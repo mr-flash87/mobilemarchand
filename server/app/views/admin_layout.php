@@ -8,6 +8,7 @@ $nav = $isAdmin ? [
     'merchants' => ['Marchands & API', 'store'],
     'operators' => ['Opérateurs', 'wallet'],
     'devices' => ['Téléphones', 'phone'],
+    'telegram' => ['Telegram', 'send'],
     'simulate' => ['Simulateur', 'flask'],
     'settings' => ['Réglages', 'gear'],
 ] : [
@@ -18,6 +19,7 @@ $nav = $isAdmin ? [
     'devices' => ['Mes téléphones', 'phone'],
     'api' => ['Clés API & webhook', 'store'],
     'subscription' => ['Abonnement', 'card'],
+    'telegram' => ['Telegram', 'send'],
     'simulate' => ['Simulateur', 'flask'],
     'settings' => ['Mon compte', 'gear'],
 ];

@@ -85,6 +85,9 @@ function admin_route(string $method, array $p): void
         case 'push':
             admin_push($method, $user);
             return;
+        case 'telegram':
+            admin_telegram($method);
+            return;
         case 'password':
             if ($method === 'POST') {
                 $new = (string)($_POST['new_password'] ?? '');
@@ -238,40 +241,9 @@ function admin_sms(string $method, array $p): void
         if ($sms && !is_admin_ctx() && (int)$sms['merchant_id'] !== ctx_mid()) {
             $sms = null;
         }
-        $smsScope = $sms && $sms['merchant_id'] !== null ? (int)$sms['merchant_id'] : null;
-        $a = $_POST['action'] ?? '';
-        if ($sms && $a === 'match') {
-            $pay = payment_find(trim((string)($_POST['reference'] ?? '')));
-            if ($pay && payment_scope($pay) !== $smsScope) {
-                $pay = null; // le SMS et le paiement doivent appartenir au même marchand
-            }
-            if (!$pay) {
-                flash('Référence de paiement introuvable.', 'err');
-            } elseif (!in_array($pay['status'], ['pending', 'expired'], true)) {
-                flash('Ce paiement est déjà ' . $pay['status'] . '.', 'err');
-            } else {
-                payment_mark_paid($pay, $sms, 'manual');
-                if ($sms['balance'] !== null && $sms['device_id']) {
-                    device_set_balance((int)$sms['device_id'], $sms['operator'], (float)$sms['balance']);
-                }
-                flash('SMS rapproché du paiement ' . $pay['reference'] . '.');
-            }
-        } elseif ($sms && $a === 'approve' && $sms['status'] === 'review') {
-            // L'admin confirme que l'argent est bien arrivé : on resynchronise le solde puis on rapproche.
-            if ($sms['balance'] !== null && $sms['device_id']) {
-                device_set_balance((int)$sms['device_id'], $sms['operator'], (float)$sms['balance']);
-            }
-            db_update('sms_messages', ['status' => 'unmatched', 'note' => 'Vérifié par l\'admin'], 'id = :id', ['id' => $sms['id']]);
-            $sms = q_one('SELECT * FROM sms_messages WHERE id = ?', [$sms['id']]);
-            $pay = $sms['payment_id'] ? q_one('SELECT * FROM payments WHERE id = ?', [$sms['payment_id']]) : payment_match_for((float)$sms['amount'], $sms['phone'], $smsScope);
-            if ($pay && payment_mark_paid($pay, $sms, 'manual')) {
-                flash('SMS validé et paiement ' . $pay['reference'] . ' confirmé.');
-            } else {
-                flash('SMS validé. Aucun paiement en attente correspondant : rapprochez-le manuellement si besoin.');
-            }
-        } elseif ($sms && $a === 'ignore') {
-            db_update('sms_messages', ['status' => 'ignored', 'note' => 'Ignoré par l\'admin'], 'id = :id', ['id' => $sms['id']]);
-            flash('SMS ignoré.');
+        if ($sms) {
+            [$ok, $msg] = sms_action($sms, (string)($_POST['action'] ?? ''), (string)($_POST['reference'] ?? ''));
+            flash($msg, $ok ? 'ok' : 'err');
         }
         aredirect('sms' . (!empty($_POST['back']) ? '?status=' . urlencode((string)$_POST['back']) : ''));
     }
@@ -683,4 +655,51 @@ function admin_operators(string $method): void
         $stats[(string)$r['paid_operator']] = $r;
     }
     admin_page('admin_operators', 'Opérateurs', compact('rows', 'stats'));
+}
+
+/** Bot Telegram : configuration (admin) et liaison des discussions / groupes (admin et marchands). */
+function admin_telegram(string $method): void
+{
+    $scope = ctx_mid();
+    if ($method === 'POST') {
+        $a = (string)($_POST['action'] ?? '');
+        if ($a === 'setup' && is_admin_ctx()) {
+            [$ok, $msg] = tg_setup((string)($_POST['token'] ?? ''));
+            flash($msg, $ok ? 'ok' : 'err');
+            aredirect('telegram');
+        }
+        if ($a === 'disable' && is_admin_ctx()) {
+            [$ok, $msg] = tg_setup('');
+            flash($msg);
+            aredirect('telegram');
+        }
+        if ($a === 'code' && tg_enabled()) {
+            start_session();
+            $_SESSION['tg_code'] = tg_new_link_code($scope, empty($_POST['read_only']));
+            aredirect('telegram#lier');
+        }
+        if ($a === 'test') {
+            $n = tg_notify('🔔 Test de notification', 'Les paiements reçus seront annoncés ici.', '', 'test', $scope);
+            flash($n > 0 ? "Message de test envoyé à $n discussion(s)." : 'Aucune discussion n\'a reçu le test (notifications coupées ou bot retiré ?).', $n > 0 ? 'ok' : 'err');
+            aredirect('telegram');
+        }
+        $cp = [(int)($_POST['id'] ?? 0)];
+        $chat = q_one('SELECT * FROM telegram_chats WHERE id = ? AND ' . scope_sql('merchant_id', $scope, $cp), $cp);
+        if ($chat && $a === 'save_chat') {
+            db_update('telegram_chats', ['notify' => !empty($_POST['notify']) ? 1 : 0, 'can_act' => !empty($_POST['can_act']) ? 1 : 0], 'id = :id', ['id' => $chat['id']]);
+            flash('Réglages de « ' . $chat['title'] . ' » enregistrés.');
+        } elseif ($chat && $a === 'unlink') {
+            q('DELETE FROM telegram_chats WHERE id = ?', [$chat['id']]);
+            tg_send($chat['chat_id'], '👋 Cette discussion a été déliée depuis l\'espace web.');
+            flash('Discussion déliée.');
+        }
+        aredirect('telegram');
+    }
+    start_session();
+    $code = $_SESSION['tg_code'] ?? null;
+    unset($_SESSION['tg_code']);
+    $cp = [];
+    $chats = q_all('SELECT * FROM telegram_chats WHERE ' . scope_sql('merchant_id', $scope, $cp) . ' ORDER BY id', $cp);
+    $webhook = is_admin_ctx() && tg_enabled() ? (tg_api('getWebhookInfo')['result'] ?? null) : null;
+    admin_page('admin_telegram', 'Telegram', compact('code', 'chats', 'webhook'));
 }
