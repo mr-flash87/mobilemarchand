@@ -154,15 +154,33 @@ object PayoutRunner {
             PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "gateway:ussd"
         )
         try {
-            screen.acquire(120_000)
+            screen.acquire(300_000)
             try {
                 ctx.startActivity(Intent(ctx, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
             } catch (_: Exception) {
             }
             Thread.sleep(1500)
-            dial(ctx, store, j)?.let { return Triple("failed", it, false) }
-            l.await(90, TimeUnit.SECONDS)
-            Thread.sleep(300)
+            val tried = mutableListOf<android.telecom.PhoneAccountHandle?>()
+            var attempt = 0
+            while (true) {
+                val (err, used) = dial(ctx, store, j, tried)
+                if (err != null) return Triple("failed", err, false)
+                tried += used
+                latch!!.await(90, TimeUnit.SECONDS)
+                Thread.sleep(300)
+                val res = resultText ?: failure ?: ""
+                // « Réseau mobile non disponible » avant le code secret : rien n'est parti, on essaie une autre SIM.
+                if (!pinSent && NETWORK_RX.containsMatchIn(res) && attempt < 2 && hasOtherSim(ctx, tried)) {
+                    store.log("📶 ${j.opName} : « ${res.take(60)} », nouvel essai sur l'autre SIM")
+                    UssdAccessibilityService.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                    Thread.sleep(1500)
+                    resultText = null; failure = null; steps = 0; sawDialog = false
+                    latch = CountDownLatch(1)
+                    attempt++
+                    continue
+                }
+                break
+            }
             return when {
                 failure != null -> Triple(if (pinSent) "unknown" else "failed", failure!!, pinSent)
                 resultText != null -> Triple("done", resultText!!, pinSent)
@@ -176,16 +194,32 @@ object PayoutRunner {
         }
     }
 
-    /** Compose le code USSD sur la SIM de l'opérateur. Retourne un message d'erreur, ou null. */
-    private fun dial(ctx: Context, store: Store, j: PayoutJob): String? {
-        if (!callPermission(ctx)) return "Autorisation « Appels » manquante"
+    private val NETWORK_RX = Regex("r[ée]seau|network|non disponible|not available|indisponible|no service|aucun service|hors service", RegexOption.IGNORE_CASE)
+
+    private fun hasOtherSim(ctx: Context, tried: List<android.telecom.PhoneAccountHandle?>): Boolean = try {
+        val tm = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
+        tm.callCapablePhoneAccounts.any { it !in tried }
+    } catch (_: SecurityException) {
+        false
+    }
+
+    /** Compose le code USSD sur la SIM de l'opérateur. Retourne (erreur ou null, SIM utilisée). */
+    private fun dial(ctx: Context, store: Store, j: PayoutJob, avoid: List<android.telecom.PhoneAccountHandle?> = emptyList()): Pair<String?, android.telecom.PhoneAccountHandle?> {
+        if (!callPermission(ctx)) return "Autorisation « Appels » manquante" to null
         val tm = ctx.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
         val extras = Bundle()
         if (ctx.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
             try {
                 val all = tm.callCapablePhoneAccounts
+                if (avoid.isEmpty()) {
+                    store.log("📱 SIM vues : " + all.joinToString(", ") { tm.getPhoneAccount(it)?.label?.toString() ?: "?" }.ifEmpty { "aucune" })
+                }
                 val accounts = activeAccounts(ctx, tm, all)
-                if (accounts.size == 1 && all.size > 1) {
+                val retry = all.filter { it !in avoid }
+                if (avoid.isNotEmpty() && retry.isNotEmpty()) {
+                    // Nouvel essai : la SIM suivante (même si Android la croit inactive).
+                    extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, (retry.firstOrNull { it in accounts } ?: retry[0]))
+                } else if (accounts.size == 1 && all.size > 1) {
                     extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, accounts[0])
                 } else if (accounts.size > 1) {
                     val choice = store.simFor(j.op)
@@ -196,24 +230,24 @@ object PayoutRunner {
                         val label = tm.getPhoneAccount(h)?.label?.toString()?.lowercase() ?: ""
                         aliases.any { a -> a.isNotEmpty() && label.contains(a) }
                     }
-                    if (handle == null) return "Impossible de savoir quelle SIM est ${j.opName} (SIM du téléphone : ${labels.joinToString(", ")}) : choisissez SIM 1 ou SIM 2 dans l'application, onglet Envois"
+                    if (handle == null) return "Impossible de savoir quelle SIM est ${j.opName} (SIM du téléphone : ${labels.joinToString(", ")}) : choisissez SIM 1 ou SIM 2 dans l'application, onglet Envois" to null
                     extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle)
                 }
             } catch (_: SecurityException) {
             }
         }
+        @Suppress("DEPRECATION")
+        val h = extras.getParcelable<android.telecom.PhoneAccountHandle>(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE)
         try {
-            @Suppress("DEPRECATION")
-            val h = extras.getParcelable<android.telecom.PhoneAccountHandle>(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE)
             val simLabel = h?.let { tm.getPhoneAccount(it)?.label?.toString() } ?: "par défaut"
             store.log("📞 ${j.opName} : code composé sur la SIM « $simLabel »")
         } catch (_: Exception) {
         }
         return try {
             tm.placeCall(Uri.fromParts("tel", j.ussd, null), extras)
-            null
+            null to h
         } catch (e: Exception) {
-            "Impossible de composer le code USSD : ${e.message}"
+            "Impossible de composer le code USSD : ${e.message}" to h
         }
     }
 
@@ -386,11 +420,17 @@ object WaveDriver {
         return svc.dispatchGesture(g, null, null)
     }
 
-    private fun press(svc: AccessibilityService, n: AccessibilityNodeInfo?): Boolean {
-        if (n == null) return false
-        val clicked = clickNode(n)
-        Thread.sleep(400)
-        return clicked || tap(svc, n)
+    /** Appui robuste : clic d'accessibilité sur l'élément et ses parents, puis appui « au doigt ». Retourne la méthode utilisée. */
+    private fun press(svc: AccessibilityService, n: AccessibilityNodeInfo?): String {
+        if (n == null) return "bouton introuvable"
+        if (clickNode(n)) return "clic"
+        var c: AccessibilityNodeInfo? = n
+        var i = 0
+        while (c != null && i < 6) {
+            if (c.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return "clic parent $i"
+            c = c.parent; i++
+        }
+        return if (tap(svc, n)) "appui au doigt" else "échec de l'appui"
     }
 
     /** Signature de la 1re opération de l'historique (pour reconnaître la nouvelle). */
@@ -401,6 +441,8 @@ object WaveDriver {
     }
 
     fun run(ctx: Context, j: PayoutJob, pin: String?): Triple<String, String, Boolean> {
+        val store = Store.get(ctx)
+        fun log(line: String) = store.log("🌊 " + line.take(150))
         val svc = UssdAccessibilityService.instance ?: return Triple("failed", "Accessibilité désactivée : activez « Passerelle Pay : envois d'argent »", false)
         val pkg = wavePackage(ctx) ?: return Triple("failed", "Application Wave introuvable sur ce téléphone", false)
         val launch = ctx.packageManager.getLaunchIntentForPackage(pkg) ?: return Triple("failed", "Impossible d'ouvrir Wave", false)
@@ -418,14 +460,14 @@ object WaveDriver {
         var lastSeen = ""
         PayoutRunner.job = j
         try {
-            screen.acquire(150_000)
+            screen.acquire(200_000)
             try {
                 ctx.startActivity(Intent(ctx, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
             } catch (_: Exception) {
             }
             Thread.sleep(1500)
             ctx.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
-            val deadline = System.currentTimeMillis() + 90_000
+            val deadline = System.currentTimeMillis() + 150_000
             var sentAt = 0L
             while (System.currentTimeMillis() < deadline) {
                 Thread.sleep(800)
@@ -485,12 +527,16 @@ object WaveDriver {
                                 typeText(target, j.amount.toString())
                                 amountDone = true
                                 amountTries++
+                                log("Wave : montant reçu saisi (essai $amountTries) : « ${target.text} »")
                                 Thread.sleep(600)
                             }
                             continue
                         }
-                        if (btn != null && isActive(btn)) {
-                            if (clickNode(btn) || tap(svc, btn)) {
+                        val typed = (if (edits.size >= 2) edits[1] else edits.lastOrNull())?.text?.toString() ?: ""
+                        if (btn != null && (isActive(btn) || amountTries >= 3)) {
+                            val how = press(svc, btn)
+                            log("Wave : montant « $typed », Envoyer (actif=${isActive(btn)}) → $how")
+                            if (!how.startsWith("échec") && how != "bouton introuvable") {
                                 sent = true
                                 sentAt = System.currentTimeMillis()
                             }
@@ -506,11 +552,13 @@ object WaveDriver {
                             typeText(edits[1], if (formTries == 0) j.phone else phoneFmt)
                             formDone = true
                             formTries++
+                            log("Wave : nom et numéro saisis (essai $formTries) : « ${edits[0].text} » / « ${edits[1].text} »")
                             Thread.sleep(600)
                             continue
                         }
-                        press(svc, next)
-                        Thread.sleep(800)
+                        val how = press(svc, next)
+                        log("Wave : Suivant (actif=${isActive(next)}) → $how")
+                        Thread.sleep(1500)
                     }
                     find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)) != null ->
                         clickNode(find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)))

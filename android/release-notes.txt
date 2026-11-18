@@ -1,3 +1,3 @@
-Envois Wave : le nom, le numéro et le montant sont tapés lettre par lettre comme une personne, pour que Wave active les boutons « Suivant » et « Envoyer ». Si le bouton ne réagit pas, l'application appuie dessus comme avec le doigt.
-En cas d'échec, le message indique si le bouton était actif.
+Envois Wave : appui plus fiable sur « Suivant » et « Envoyer » (plusieurs méthodes, dont l'appui au doigt). Le journal détaille chaque étape Wave (🌊).
+Envois Moov / Orange : si le téléphone répond « Réseau mobile non disponible », l'application réessaie automatiquement sur l'autre SIM (rien n'est envoyé tant que le code secret n'est pas saisi). Le journal liste les SIM vues.
 Mise à jour directe par-dessus l'ancienne version.
