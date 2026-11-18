@@ -174,7 +174,7 @@ function payment_mark_paid(array $payment, ?array $sms, string $how = 'auto'): b
         $m = $payment['merchant_id'] ? q_val('SELECT name FROM merchants WHERE id = ?', [$payment['merchant_id']]) : null;
         push_notify(
             '💰 Paiement reçu : ' . fmt_amount($payment['amount'], 'F'),
-            'De ' . ($payment['payer_phone'] ?: 'client') . ($m ? ' · ' . $m : '') . ' · ' . $payment['reference'],
+            'De ' . ($payment['payer_phone'] ?: 'client') . ($m ? ' · ' . $m : '') . ' · ' . $payment['reference'] . payment_delay_note($sms),
             'payments/' . $payment['reference'],
             'pay-' . $payment['reference'],
             payment_scope($payment)
@@ -424,4 +424,18 @@ function sms_action(array $sms, string $action, string $reference = ''): array
         return [true, 'SMS ignoré.'];
     }
     return [false, 'Action inconnue.'];
+}
+
+/** « ⏱ transmis 12 min après réception » quand le téléphone a envoyé le SMS / la notification en retard. */
+function payment_delay_note(?array $sms): string
+{
+    if (!$sms || empty($sms['received_at']) || empty($sms['created_at'])) {
+        return '';
+    }
+    $late = strtotime($sms['created_at'] . ' UTC') - strtotime($sms['received_at'] . ' UTC');
+    if ($late < 60) {
+        return '';
+    }
+    return "\n⏱ Transmis par le téléphone " . ($late < 3600 ? round($late / 60) . ' min' : round($late / 3600, 1) . ' h')
+        . ' après réception (reçu à ' . substr(fmt_dt($sms['received_at']), 11, 5) . ')';
 }

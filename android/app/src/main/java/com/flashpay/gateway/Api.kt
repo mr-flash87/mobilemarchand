@@ -95,6 +95,8 @@ object Api {
                 if (status != "already_received") store.bumpToday("sent")
                 if (status == "matched") store.bumpToday("matched")
                 val payment = r.optString("payment").takeIf { it.isNotEmpty() && it != "null" }
+                val lateSec = batch.getOrNull(i)?.let { (System.currentTimeMillis() - it.timestamp) / 1000 } ?: 0
+                val late = if (lateSec >= 60) " · ⏱ ${lateSec / 60} min après réception" else ""
                 store.log(
                     when (status) {
                         "matched" -> "✅ Paiement confirmé $payment"
@@ -104,7 +106,7 @@ object Api {
                         "already_received" -> "♻️ Déjà transmis"
                         "info" -> "ℹ️ Solde mis à jour"
                         else -> "SMS transmis ($status)"
-                    }
+                    } + late
                 )
             }
             store.remove(batch.map { it.id })

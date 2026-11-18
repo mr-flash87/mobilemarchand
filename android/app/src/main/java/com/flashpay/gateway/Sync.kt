@@ -82,17 +82,38 @@ object Sync {
     fun sendNow(context: Context, onDone: (() -> Unit)? = null) {
         val app = context.applicationContext
         val pm = app.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gateway:send").apply { acquire(25_000) }
+        val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gateway:send").apply { acquire(100_000) }
+        // Le service de premier plan garde l'accès à Internet même écran éteint (veille Doze).
+        if (!GatewayService.running) GatewayService.start(app)
         Thread {
             val store = Store.get(app)
             try {
-                if (store.isPaired && store.pendingCount() > 0) {
-                    Api.flush(app, store)
-                    store.lastError = ""
+                // Écran éteint, le réseau peut mettre quelques secondes à revenir : on réessaie
+                // pendant ~90 s en gardant le téléphone éveillé, au lieu d'attendre le déverrouillage.
+                val waits = longArrayOf(0, 2_000, 3_000, 5_000, 5_000, 10_000, 10_000, 15_000, 20_000, 20_000)
+                var lastError: Exception? = null
+                for ((i, w) in waits.withIndex()) {
+                    if (!store.isPaired || store.pendingCount() == 0L) { lastError = null; break }
+                    if (w > 0) Thread.sleep(w)
+                    try {
+                        Api.flush(app, store)
+                        store.lastError = ""
+                        if (i > 0) store.log("📶 Envoyé après ${i + 1} essais")
+                        lastError = null
+                        break
+                    } catch (e: ApiException) {
+                        lastError = e
+                        if (e.httpCode == 401) break
+                    } catch (e: Exception) {
+                        lastError = e
+                        if (i == 0) store.log("🌙 Réseau indisponible (veille ?) : nouvel essai…")
+                    }
                 }
-            } catch (e: Exception) {
-                store.lastError = "Réseau : ${e.message}"
-                now(app)
+                if (lastError != null) {
+                    store.lastError = "Réseau : ${lastError.message}"
+                    store.log("⏳ Envoi impossible pour l'instant : réessai automatique")
+                    now(app)
+                }
             } finally {
                 if (wl.isHeld) wl.release()
                 onDone?.invoke()
