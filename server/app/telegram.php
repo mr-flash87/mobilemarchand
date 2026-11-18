@@ -201,6 +201,10 @@ function tg_webhook(): never
             tg_handle($update);
         } catch (Throwable $e) {
             log_line('telegram: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+            $cid = $update['message']['chat']['id'] ?? $update['callback_query']['message']['chat']['id'] ?? null;
+            if ($cid !== null) {
+                tg_send($cid, '❌ Erreur : ' . tg_h(mb_substr($e->getMessage(), 0, 300)) . "\nRéessayez, ou envoyez une capture au support.");
+            }
         }
     }
     json_out(['ok' => true]); // toujours 200 : sinon Telegram renvoie le message en boucle
@@ -239,6 +243,8 @@ function tg_handle(array $u): void
     $replyTo = $msg['reply_to_message']['text'] ?? '';
     if ($text[0] !== '/' && str_starts_with($replyTo, '➕ Nouveau paiement')) {
         $text = '/creer ' . $text;
+    } elseif ($private && preg_match('/^\d[\d\s.]*(\s.*)?$/s', $text)) {
+        $text = '/creer ' . $text; // en privé, un simple « 5000 » crée un paiement
     }
 
     if (!preg_match('~^/([A-Za-z_]+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~s', $text, $m)) {
@@ -310,7 +316,7 @@ function tg_handle(array $u): void
             return;
         case 'creer':
             if ($args === '') {
-                tg_ask_amount($chat['id']);
+                tg_ask_amount($chat['id'], $from, $private);
                 return;
             }
             if ($err = tg_deny($actor)) {
@@ -436,7 +442,7 @@ function tg_on_callback(array $cb): void
             break;
         case 'nw':
             tg_api('answerCallbackQuery', ['callback_query_id' => $cb['id']]);
-            tg_ask_amount($chat['id']);
+            tg_ask_amount($chat['id'], $cb['from'] ?? [], ($chat['type'] ?? '') === 'private');
             return;
         default:
             $screen = tg_screen_menu();
@@ -565,12 +571,19 @@ function tg_reply_screen($chatId, array $screen): void
     tg_send($chatId, $screen[0], $screen[1]);
 }
 
-function tg_ask_amount($chatId): void
+function tg_ask_amount($chatId, array $from = [], bool $private = true): void
 {
+    // Dans un groupe, on mentionne la personne : sa réponse est alors automatiquement liée à cette question.
+    $who = !$private && !empty($from['id'])
+        ? '<a href="tg://user?id=' . (int)$from['id'] . '">' . tg_h($from['first_name'] ?? 'Vous') . '</a>, '
+        : '';
     tg_api('sendMessage', [
         'chat_id' => $chatId,
-        'text' => "➕ Nouveau paiement\nRépondez à ce message avec le montant, et si vous voulez le numéro du client et une description.\nEx. : 5000 70123456 Recharge compte",
-        'reply_markup' => ['force_reply' => true, 'input_field_placeholder' => '5000 70123456 Recharge', 'selective' => true],
+        'text' => "➕ Nouveau paiement\n" . $who . "envoyez le <b>montant</b> (et si vous voulez le numéro du client et une description).\n"
+            . "Ex. : <code>5000</code> ou <code>5000 70123456 Recharge</code>\n"
+            . "<i>Ou en une fois : /creer 5000</i>",
+        'parse_mode' => 'HTML',
+        'reply_markup' => ['force_reply' => true, 'input_field_placeholder' => 'Montant, ex. 5000', 'selective' => !$private],
     ]);
 }
 
@@ -837,8 +850,11 @@ function tg_create_payment(string $args): array
             'payer_phone' => $phone,
             'description' => $desc !== '' ? $desc : 'Paiement créé depuis Telegram',
         ], $merchant);
-    } catch (InvalidArgumentException $e) {
-        return ['❌ ' . tg_h(ucfirst((string)preg_replace('/^\w+: /', '', $e->getMessage()))) . "\n\nExemple : <code>/creer 5000 70123456 Recharge</code>", [[['➕ Réessayer', 'nw'], ['⬅️ Menu', 'm']]]];
+    } catch (Throwable $e) {
+        if (!$e instanceof InvalidArgumentException) {
+            log_line('telegram creer: ' . $e->getMessage() . ' @ ' . basename($e->getFile()) . ':' . $e->getLine());
+        }
+        return ['❌ ' . tg_h(ucfirst((string)preg_replace(['/^amount: /', '/^payer_phone: /', '/^\w+: /'], ['Montant : ', 'Numéro du client : ', ''], $e->getMessage()))) . "\n\nExemple : <code>/creer 5000 70123456 Recharge</code>", [[['➕ Réessayer', 'nw'], ['⬅️ Menu', 'm']]]];
     }
     [$text, $btns] = tg_screen_payment($p['reference']);
     return ["✅ <b>Paiement créé</b> : transférez le lien au client.\nVous serez prévenu ici dès qu'il aura payé.\n\n" . $text, $btns];
