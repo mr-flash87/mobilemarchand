@@ -54,7 +54,7 @@ class GatewayService : Service() {
                 return
             }
         }
-        val job = try { Api.nextPayout(this, store, PayoutRunner.readyOperators(this, store)) } catch (e: Exception) { null } ?: return
+        val job = try { Api.nextPayout(this, store, PayoutRunner.usableOperators(this, store)) } catch (e: Exception) { null } ?: return
         store.log("💸 Envoi de ${job.amount} F vers ${job.phone} (${job.opName})…")
         val (status, message, pinSent) = PayoutRunner.run(this, store, job)
         store.log(

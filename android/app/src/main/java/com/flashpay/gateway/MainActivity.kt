@@ -826,7 +826,7 @@ private fun PinRow(activity: MainActivity, op: PayoutOp, hasPin: Boolean, toast:
         }
         if (!appOn) return
         Text(
-            "L'application ${op.name} doit être installée et connectée à votre compte sur ce téléphone. Code secret : seulement si ${op.name} le demande à l'ouverture.",
+            "L'application ${op.name} doit être installée et connectée à votre compte sur ce téléphone. Tapez ci-dessous le code à 4 chiffres que ${op.name} demande à l'ouverture.",
             fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 6.dp)
         )
     }

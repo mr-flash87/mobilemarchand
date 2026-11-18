@@ -70,6 +70,7 @@
         <span class="small muted"><span class="mono"><?= h($r['reference']) ?></span> · <?= $r['kind'] === 'refund' ? 'Remboursement' . ($r['payment_ref'] ? ' de ' . h($r['payment_ref']) : '') : 'Envoi' ?>
           <?= $isAdmin && $r['merchant_name'] ? ' · ' . h($r['merchant_name']) : '' ?> · <?= h(fmt_dt($r['created_at'])) ?><?= $r['description'] ? ' · ' . h($r['description']) : '' ?></span>
         <?php if ($r['result_text']): ?><br><span class="small">« <?= h($r['result_text']) ?> »</span><?php endif; ?>
+        <?php if ($hint = payout_queue_hint($r)): ?><br><span class="small" style="color:var(--warn)">⚠️ <?= h($hint) ?></span><?php endif; ?>
       </div>
       <div class="row" style="gap:6px">
         <?php if ($r['status'] === 'approval'): ?>

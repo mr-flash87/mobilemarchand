@@ -282,7 +282,7 @@ function db_install_schema(PDO $pdo, string $driver): void
 }
 
 /** Version du schéma : les changements faits après l'installation sont appliqués automatiquement. */
-const SCHEMA_VERSION = 14; // 11 : bot Telegram ; 12 : annonces ; 13 : envois d'argent (payouts) ; 14 : envois Wave par l'application
+const SCHEMA_VERSION = 15; // 11 : bot Telegram ; 12 : annonces ; 13 : envois d'argent (payouts) ; 14 : envois Wave par l'application
 
 function db_add_column(string $table, string $column, string $mysqlType, string $sqliteType): void
 {
@@ -363,6 +363,11 @@ function db_migrate(): void
         q("UPDATE operators SET payout_ussd = ? WHERE code = 'orange' AND (payout_ussd IS NULL OR payout_ussd = '')", ['*144*2*1*{number}*{amount}#']);
         q("UPDATE operators SET payout_ussd = ? WHERE code = 'moov' AND (payout_ussd IS NULL OR payout_ussd = '')", ['*555*2*1*{number}*{amount}#']);
         operators_reset_cache();
+    }
+    if ($v < 15) {
+        // Opérateurs que chaque téléphone sait utiliser pour envoyer (diagnostic « personne ne prend l'envoi »).
+        db_add_column('devices', 'payout_ops', 'VARCHAR(255) NULL', 'TEXT NULL');
+        db_add_column('devices', 'payout_poll_at', 'DATETIME NULL', 'TEXT NULL');
     }
     if ($v < 14) {
         // Wave n'a pas de code USSD : le téléphone pilote l'application Wave (« app:wave »).

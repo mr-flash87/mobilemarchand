@@ -295,6 +295,10 @@ function api_device(string $method, array $parts): never
         // POST /api/device/payouts/{ref}/result { status: done|failed|unknown, message, pin_sent }
         $sub = $parts[1] ?? '';
         if ($sub === 'next') {
+            db_update('devices', [
+                'payout_ops' => mb_substr(implode(',', array_map('strval', (array)($in['operators'] ?? []))), 0, 255),
+                'payout_poll_at' => now(),
+            ], 'id = :id', ['id' => $device['id']]);
             json_out(['payout' => payout_claim($device, (array)($in['operators'] ?? []))]);
         }
         $o = $sub !== '' ? payout_find($sub) : null;

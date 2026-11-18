@@ -121,8 +121,20 @@ object PayoutRunner {
     fun readyOperators(ctx: Context, store: Store): List<String> =
         store.payoutOperators.filter { PinVault.has(ctx, it.code) || (it.ussd.startsWith("app:") && store.appPayoutOn(it.code)) }.map { it.code }
 
-    fun ready(ctx: Context, store: Store): Boolean =
-        store.isPaired && store.payoutsEnabled && accessibilityOn(ctx) && callPermission(ctx) && readyOperators(ctx, store).isNotEmpty()
+    fun ready(ctx: Context, store: Store): Boolean {
+        if (!store.isPaired || !store.payoutsEnabled || !accessibilityOn(ctx)) return false
+        val ops = readyOperators(ctx, store)
+        if (ops.isEmpty()) return false
+        // L'autorisation « Appels » n'est utile que pour les codes USSD (pas pour Wave).
+        val needsCall = store.payoutOperators.any { it.code in ops && !it.ussd.startsWith("app:") }
+        return !needsCall || callPermission(ctx)
+    }
+
+    /** Opérateurs réellement utilisables maintenant (USSD seulement si l'autorisation Appels est donnée). */
+    fun usableOperators(ctx: Context, store: Store): List<String> {
+        val call = callPermission(ctx)
+        return readyOperators(ctx, store).filter { code -> call || store.payoutOperators.firstOrNull { it.code == code }?.ussd?.startsWith("app:") == true }
+    }
 
     /** Bloquant (≈ 90 s max) : à appeler hors du thread principal. Retourne (statut, message, code secret envoyé). */
     fun run(ctx: Context, store: Store, j: PayoutJob): Triple<String, String, Boolean> {
@@ -347,7 +359,8 @@ object WaveDriver {
                 }
                 // Code secret demandé par Wave (pavé numérique de l'application)
                 val digits = nodes.filter { Regex("^[0-9]$").matches(label(it)) }
-                if (PIN_SCREEN.containsMatchIn(all) && digits.map { label(it) }.distinct().size >= 10 && edits.isEmpty()) {
+                // Pavé du code Wave (4 chiffres) : 10 touches 0-9 dans l'application, sans champ de saisie.
+                if (digits.map { label(it) }.distinct().size >= 10 && edits.isEmpty() && (PIN_SCREEN.containsMatchIn(all) || find(Regex("^Transfert$", RegexOption.IGNORE_CASE)) == null)) {
                     if (pin == null) return Triple(if (sent) "unknown" else "failed", "Wave demande le code secret : enregistrez-le dans l'application (Envois)", sent)
                     if (System.currentTimeMillis() - pinAt > 6000) {
                         pinAt = System.currentTimeMillis()

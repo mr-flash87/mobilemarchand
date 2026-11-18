@@ -1,3 +1,4 @@
-Correction importante des envois d'argent (Orange, Moov) : l'application lit maintenant uniquement la fenêtre USSD de l'opérateur, et plus l'écran d'accueil, la messagerie ou ses propres écrans.
-Un envoi n'est marqué « Envoyé » que si la réponse de l'opérateur cite le montant ou le numéro du bénéficiaire.
+Envois Wave : le code à 4 chiffres demandé par Wave à l'ouverture est saisi automatiquement (enregistrez-le dans l'onglet Envois, ligne Wave).
+Les envois Wave n'ont plus besoin de l'autorisation « Appels ».
+Le site explique maintenant pourquoi un envoi reste « En file » (Wave pas activé, code manquant, accessibilité…).
 Mise à jour directe par-dessus l'ancienne version.

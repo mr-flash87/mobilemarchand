@@ -454,3 +454,32 @@ function payout_confirm_by_sms(array $sms, ?array $device): void
         log_line('payout sms: ' . $e->getMessage());
     }
 }
+
+/**
+ * Pourquoi un envoi « en file » ne part pas ? Retourne une explication, ou null si un téléphone peut le prendre.
+ */
+function payout_queue_hint(array $o): ?string
+{
+    if ($o['status'] !== 'queued') {
+        return null;
+    }
+    $p = [];
+    $devs = q_all('SELECT * FROM devices WHERE active = 1 AND token_hash IS NOT NULL AND ' . scope_sql('merchant_id', $o['scope_id'] !== null ? (int)$o['scope_id'] : null, $p), $p);
+    if (!$devs) {
+        return 'Aucun téléphone passerelle associé.';
+    }
+    $op = operator_by_code($o['operator'], $o['scope_id'] !== null ? (int)$o['scope_id'] : null);
+    $name = $op['name'] ?? $o['operator'];
+    $polling = array_filter($devs, fn($d) => !empty($d['payout_poll_at']) && $d['payout_poll_at'] >= ts_plus(-120));
+    if (!$polling) {
+        return "Le téléphone ne demande pas d'envois : dans l'application (version 2.5 ou plus), onglet Envois, activez « Envois automatiques », l'autorisation Appels et l'Accessibilité.";
+    }
+    foreach ($polling as $d) {
+        if (in_array($o['operator'], explode(',', (string)$d['payout_ops']), true)) {
+            return null; // un téléphone peut le prendre : il partira dans quelques secondes
+        }
+    }
+    return str_starts_with((string)($op['payout_ussd'] ?? ''), 'app:')
+        ? "Le téléphone n'envoie pas encore par $name : dans l'application, onglet Envois, activez la ligne $name (et enregistrez son code secret à 4 chiffres)."
+        : "Le téléphone n'a pas de code secret $name : dans l'application, onglet Envois, tapez le code secret $name puis OK.";
+}

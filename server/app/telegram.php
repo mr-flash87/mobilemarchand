@@ -1294,6 +1294,9 @@ function tg_screen_payout(string $ref): array
     if ($o['result_text']) {
         $lines[] = "Réponse de l'opérateur :\n<i>" . tg_h($o['result_text']) . '</i>';
     }
+    if ($hint = payout_queue_hint($o)) {
+        $lines[] = "\n⚠️ " . tg_h($hint);
+    }
     if ($o['status'] === 'approval') {
         $lines[] = "\n⚠️ Après validation, le téléphone passerelle enverra l'argent automatiquement.";
     } elseif ($o['status'] === 'unknown') {
