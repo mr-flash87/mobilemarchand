@@ -111,9 +111,18 @@ function payout_create(array $in, ?array $merchant, string $by = 'api', ?array $
     if ($metadata !== null && !is_array($metadata)) {
         throw new InvalidArgumentException('metadata: doit être un objet JSON.');
     }
-    // Validation manuelle au-dessus du seuil (0 = toujours valider à la main).
+    // Qui doit valider ?
+    // - Créé à la main (tableau de bord, Telegram) : la personne vient de confirmer -> part tout de suite.
+    // - Remboursement par l'API d'un paiement confirmé par l'opérateur (SMS / notification) : automatique si activé.
+    // - Autre envoi par l'API : validation manuelle au-dessus du seuil (0 = toujours valider à la main).
     $autoMax = (float)setting('payout_auto_max', '0');
-    $needApproval = $autoMax <= 0 || $amount > $autoMax;
+    if ($by !== 'api') {
+        $needApproval = false;
+    } elseif ($payment && !empty($payment['sms_id']) && setting('refund_auto', '1') === '1') {
+        $needApproval = false;
+    } else {
+        $needApproval = $autoMax <= 0 || $amount > $autoMax;
+    }
 
     $id = db_insert('payouts', [
         'reference' => 'OUT-' . substr(new_reference(), 4),

@@ -34,7 +34,9 @@
       <form method="post">
         <?= csrf_field() ?><input type="hidden" name="action" value="settings">
         <label class="check"><input type="checkbox" name="payouts_enabled" value="1" <?= payouts_enabled() ? 'checked' : '' ?>> <span>Autoriser les envois d'argent sur la plateforme</span></label>
-        <label>Validation automatique jusqu'à (F) — <span class="muted">0 = tout valider à la main</span></label>
+        <label class="check"><input type="checkbox" name="refund_auto" value="1" <?= setting('refund_auto', '1') === '1' ? 'checked' : '' ?>> <span>Remboursements demandés par l'API (commande annulée…) : partir automatiquement, sans validation, si le paiement a été confirmé par l'opérateur</span></label>
+        <p class="small muted" style="margin:4px 0 8px">Les envois et remboursements lancés ici ou sur Telegram partent toujours tout de suite : votre clic vaut validation.</p>
+        <label>Autres envois par l'API : validation automatique jusqu'à (F) — <span class="muted">0 = tout valider à la main</span></label>
         <input type="number" name="payout_auto_max" min="0" value="<?= h(setting('payout_auto_max', '0')) ?>">
         <label>Maximum par envoi (F)</label><input type="number" name="payout_max" min="0" value="<?= h(setting('payout_max', '200000')) ?>">
         <label>Plafond par jour et par espace (F)</label><input type="number" name="payout_daily_limit" min="0" value="<?= h(setting('payout_daily_limit', '500000')) ?>">
@@ -42,7 +44,8 @@
       </form>
     <?php else: ?>
       <ul class="small" style="padding-left:18px;line-height:1.7">
-        <li>Au-dessus de <strong><?= (float)setting('payout_auto_max', '0') > 0 ? h(fmt_amount(setting('payout_auto_max'), 'F')) : '0 F' ?></strong>, chaque envoi doit être validé (ici ou sur Telegram).</li>
+        <li>Les envois et remboursements lancés ici ou sur Telegram partent tout de suite.</li>
+        <li>Envois demandés par l'API au-dessus de <strong><?= (float)setting('payout_auto_max', '0') > 0 ? h(fmt_amount(setting('payout_auto_max'), 'F')) : '0 F' ?></strong> : à valider ici ou sur Telegram<?= setting('refund_auto', '1') === '1' ? ' (sauf remboursements de paiements confirmés par l\'opérateur : automatiques)' : '' ?>.</li>
         <li>Maximum <?= h(fmt_amount(setting('payout_max', '200000'), 'F')) ?> par envoi, <?= h(fmt_amount(setting('payout_daily_limit', '500000'), 'F')) ?> par jour.</li>
       </ul>
     <?php endif; ?>
