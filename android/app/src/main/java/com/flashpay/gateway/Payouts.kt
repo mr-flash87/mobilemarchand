@@ -350,6 +350,49 @@ object WaveDriver {
         n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
     }
 
+    /** Saisie lettre par lettre, comme une personne (Wave valide le champ à chaque touche). */
+    private fun typeText(n: AccessibilityNodeInfo, v: String) {
+        n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        for (i in 1..v.length) {
+            val b = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, v.substring(0, i)) }
+            n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+            Thread.sleep(90)
+        }
+    }
+
+    /** Le bouton (ou son conteneur cliquable) est-il actif ? */
+    private fun isActive(n: AccessibilityNodeInfo?): Boolean {
+        var c = n
+        var i = 0
+        while (c != null && i < 6) {
+            if (!c.isEnabled) return false
+            if (c.isClickable) return true
+            c = c.parent; i++
+        }
+        return n?.isEnabled ?: false
+    }
+
+    /** Appui « avec le doigt » au centre de l'élément (si le clic d'accessibilité ne passe pas). */
+    private fun tap(svc: AccessibilityService, n: AccessibilityNodeInfo?): Boolean {
+        if (n == null || Build.VERSION.SDK_INT < 24) return false
+        val r = android.graphics.Rect()
+        n.getBoundsInScreen(r)
+        if (r.isEmpty) return false
+        val path = android.graphics.Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
+        val g = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 80))
+            .build()
+        return svc.dispatchGesture(g, null, null)
+    }
+
+    private fun press(svc: AccessibilityService, n: AccessibilityNodeInfo?): Boolean {
+        if (n == null) return false
+        val clicked = clickNode(n)
+        Thread.sleep(400)
+        return clicked || tap(svc, n)
+    }
+
     /** Signature de la 1re opération de l'historique (pour reconnaître la nouvelle). */
     private fun topTransaction(nodes: List<AccessibilityNodeInfo>): String {
         val i = nodes.indexOfFirst { Regex("^(À|A|De)\\s").containsMatchIn(label(it)) && Regex("\\d{2} \\d{2} \\d{2} \\d{2}").containsMatchIn(label(it)) }
@@ -368,6 +411,8 @@ object WaveDriver {
         var sent = false
         var formDone = false
         var amountDone = false
+        var formTries = 0
+        var amountTries = 0
         var pinAt = 0L
         var initialTop: String? = null
         var lastSeen = ""
@@ -431,30 +476,41 @@ object WaveDriver {
                         if (System.currentTimeMillis() - sentAt > 45_000) break
                     }
                     find(Regex("^Montant Re", RegexOption.IGNORE_CASE)) != null || find(Regex("Frais Wave", RegexOption.IGNORE_CASE)) != null -> {
-                        if (!amountDone) {
+                        val btn = nodes.firstOrNull { label(it).equals("Envoyer", true) }
+                        lastSeen = "écran montant, bouton Envoyer actif=${isActive(btn)}, champs=${edits.size} · " + all.take(220)
+                        if (!amountDone || (!isActive(btn) && amountTries < 3)) {
                             // 2e champ = « Montant reçu » : le client reçoit exactement le montant (frais payés par l'envoyeur).
                             val target = if (edits.size >= 2) edits[1] else edits.lastOrNull()
                             if (target != null) {
-                                setText(target, j.amount.toString())
+                                typeText(target, j.amount.toString())
                                 amountDone = true
+                                amountTries++
+                                Thread.sleep(600)
                             }
                             continue
                         }
-                        val btn = nodes.firstOrNull { label(it).equals("Envoyer", true) }
-                        if (btn != null && clickNode(btn)) {
-                            sent = true
-                            sentAt = System.currentTimeMillis()
+                        if (btn != null && isActive(btn)) {
+                            if (clickNode(btn) || tap(svc, btn)) {
+                                sent = true
+                                sentAt = System.currentTimeMillis()
+                            }
                         }
                     }
                     find(Regex("^Nom complet", RegexOption.IGNORE_CASE)) != null -> {
-                        if (!formDone && edits.size >= 2) {
-                            setText(edits[0], NAME)
+                        val next = nodes.firstOrNull { label(it).equals("Suivant", true) }
+                        lastSeen = "écran nom/téléphone, bouton Suivant actif=${isActive(next)}, champs=${edits.size}, essai=$formTries · " + all.take(200)
+                        if (edits.size >= 2 && (!formDone || (!isActive(next) && formTries < 3))) {
+                            // 1er essai : numéro brut ; ensuite : numéro au format « 02 24 77 01 ».
+                            typeText(edits[0], NAME)
                             Thread.sleep(300)
-                            setText(edits[1], j.phone)
+                            typeText(edits[1], if (formTries == 0) j.phone else phoneFmt)
                             formDone = true
+                            formTries++
+                            Thread.sleep(600)
                             continue
                         }
-                        clickNode(nodes.firstOrNull { label(it).equals("Suivant", true) })
+                        press(svc, next)
+                        Thread.sleep(800)
                     }
                     find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)) != null ->
                         clickNode(find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)))
