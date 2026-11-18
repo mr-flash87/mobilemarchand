@@ -607,7 +607,7 @@ function admin_operators(string $method): void
             if ($f['app_package'] !== '' && !rx_valid($f['app_package'])) {
                 return 'Application (notifications) : expression invalide.';
             }
-            if ($f['payout_ussd'] !== '' && (!str_contains($f['payout_ussd'], '{number}') || !str_contains($f['payout_ussd'], '{amount}'))) {
+            if ($f['payout_ussd'] !== '' && !str_starts_with($f['payout_ussd'], 'app:') && (!str_contains($f['payout_ussd'], '{number}') || !str_contains($f['payout_ussd'], '{amount}'))) {
                 return 'Code USSD d\'envoi : il doit contenir {number} et {amount}.';
             }
             if ($f['pay_link'] !== '' && !preg_match('#^https?://#', $f['pay_link'])) {

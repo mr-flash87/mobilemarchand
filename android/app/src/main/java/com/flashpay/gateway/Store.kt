@@ -117,6 +117,10 @@ class Store private constructor(context: Context) :
         get() = prefs.getBoolean("payouts_server", true)
         set(v) = prefs.edit().putBoolean("payouts_server", v).apply()
 
+    /** Envoi par application (Wave) activé sur ce téléphone. */
+    fun appPayoutOn(op: String): Boolean = prefs.getBoolean("app_payout_$op", false)
+    fun setAppPayout(op: String, on: Boolean) = prefs.edit().putBoolean("app_payout_$op", on).apply()
+
     /** SIM à utiliser pour un opérateur : -1 = automatique, 0 = SIM 1, 1 = SIM 2. */
     fun simFor(op: String): Int = prefs.getInt("sim_$op", -1)
     fun setSim(op: String, slot: Int) = prefs.edit().putInt("sim_$op", slot).apply()

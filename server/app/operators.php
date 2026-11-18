@@ -251,7 +251,7 @@ function operators_seed(?int $scope = null): void
             'sort_order' => $i + 1, 'created_at' => now(), 'merchant_id' => $scope,
             'app_package' => $code === 'wave' ? '^com\\.wave\\.' : null,
             'fee_percent' => $code === 'wave' ? 0.5 : null,
-            'payout_ussd' => ['orange' => '*144*2*1*{number}*{amount}#', 'moov' => '*555*2*1*{number}*{amount}#'][$code] ?? null,
+            'payout_ussd' => ['orange' => '*144*2*1*{number}*{amount}#', 'moov' => '*555*2*1*{number}*{amount}#', 'wave' => 'app:wave'][$code] ?? null,
         ]);
     }
 }

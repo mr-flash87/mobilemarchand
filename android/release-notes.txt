@@ -1,4 +1,4 @@
-Nouveau : envois d'argent et remboursements automatiques (Orange Money et Moov Money). Le téléphone compose lui-même le code USSD d'envoi et saisit le code secret.
-Le code secret est chiffré et reste dans le téléphone (jamais envoyé au site).
-Pour l'activer : ouvrez l'application > « Envois d'argent », activez l'interrupteur, autorisez les appels et l'accessibilité, puis enregistrez le code secret de chaque opérateur.
-Mise à jour directe par-dessus la version 2.4.0 (pas besoin de désinstaller).
+Nouveau tableau de bord plus lisible : grandes cartes, gros chiffres et barre de navigation en bas (Accueil, Envois, Journal, Réglages).
+Nouveau : envois et remboursements par Wave. Le téléphone ouvre l'application Wave et fait l'envoi tout seul (Transfert > nouveau numéro > montant > Envoyer).
+Pour l'activer : onglet « Envois » > activez Wave (l'application Wave doit être installée et connectée sur ce téléphone).
+Mise à jour directe par-dessus l'ancienne version.

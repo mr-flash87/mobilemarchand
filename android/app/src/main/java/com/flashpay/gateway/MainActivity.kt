@@ -21,6 +21,15 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Badge
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -308,17 +317,17 @@ private fun HeaderBand(title: String, subtitle: String, trailing: @Composable ()
 private fun SectionCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) { Column(Modifier.padding(18.dp)) { content() } }
+    ) { Column(Modifier.padding(20.dp)) { content() } }
 }
 
 @Composable
 private fun CardTitle(text: String) {
-    Text(text, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
-    Spacer(Modifier.height(10.dp))
+    Text(text, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurface)
+    Spacer(Modifier.height(12.dp))
 }
 
 /* ---------------------------------- Association ---------------------------------- */
@@ -422,8 +431,8 @@ fun HomeScreen(
     askPermissions: () -> Unit, toast: (String) -> Unit, refresh: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    var tab by remember { mutableStateOf(0) }
     var syncing by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     var confirmUnpair by remember { mutableStateOf(false) }
 
     val syncNow: () -> Unit = {
@@ -446,54 +455,91 @@ fun HomeScreen(
             }
         }
     }
+    val requeue: () -> Unit = {
+        scope.launch {
+            val n = withContext(Dispatchers.IO) { activity.requeueInbox() }
+            toast(if (n < 0) "Autorisez d'abord la lecture des SMS" else "$n SMS remis en file (les doublons sont ignorés)")
+            refresh()
+        }
+    }
+    val todo = listOf(state.smsPermission, state.notifPermission, state.notifAccess, state.batteryOk, state.serviceOn).count { !it }
+    val titles = listOf("Tableau de bord", "Envois d'argent", "Journal", "Réglages")
 
-    LazyColumn(
-        Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding()),
-        contentPadding = PaddingValues(bottom = 32.dp),
-    ) {
-        item {
-            HeaderBand(state.deviceName.ifEmpty { "Passerelle de paiement" }, hostOf(state.serverUrl)) {
-                IconButton(onClick = syncNow, enabled = !syncing) {
-                    if (syncing) CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Icon(Icons.Filled.Refresh, "Synchroniser", tint = Color.White)
+    Column(Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding())) {
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item {
+                TopBar(titles[tab], state.deviceName.ifEmpty { hostOf(state.serverUrl) }) {
+                    RoundIcon(onClick = syncNow, enabled = !syncing) {
+                        if (syncing) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Filled.Refresh, "Synchroniser", tint = MaterialTheme.colorScheme.onSurface)
+                    }
                 }
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "Menu", tint = Color.White) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("Renvoyer les SMS des dernières 24 h") }, onClick = {
-                            menu = false
-                            scope.launch {
-                                val n = withContext(Dispatchers.IO) { activity.requeueInbox() }
-                                toast(if (n < 0) "Autorisez d'abord la lecture des SMS" else "$n SMS remis en file (les doublons sont ignorés)")
-                                refresh()
+            }
+            item {
+                Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    when (tab) {
+                        0 -> {
+                            StatusCard(state)
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                BigStat("Paiements confirmés", state.matchedToday.toString(), "aujourd'hui", Icons.Filled.CheckCircle, Modifier.weight(1f), Brand.Green)
+                                BigStat("SMS transmis", state.sentToday.toString(), "aujourd'hui", Icons.Filled.Email, Modifier.weight(1f))
                             }
-                        })
-                        DropdownMenuItem(text = { Text("Paramètres de l'application") }, onClick = { menu = false; activity.openAppSettings() })
-                        HorizontalDivider()
-                        DropdownMenuItem(text = { Text("Dissocier ce téléphone", color = Brand.Red) }, onClick = { menu = false; confirmUnpair = true })
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                BigStat("En attente", state.pending.toString(), "d'envoi au site", Icons.Filled.Refresh, Modifier.weight(1f), if (state.pending > 0) Brand.Amber else null)
+                                BigStat(
+                                    "Envois d'argent", if (state.payoutsOn) "Actifs" else "Inactifs",
+                                    if (state.payoutsOn) "${state.payoutPins.size} opérateur(s)" else "toucher pour activer",
+                                    Icons.Filled.Send, Modifier.weight(1f).clickableNoRipple { tab = 1 },
+                                    if (state.payoutsOn) Brand.Blue else null,
+                                )
+                            }
+                            if (todo > 0) {
+                                ActionBanner(
+                                    "$todo réglage(s) à faire", "Indispensable pour confirmer les paiements automatiquement.",
+                                    "Régler"
+                                ) { tab = 3 }
+                            }
+                            ActivityCard(state.entries.take(6), onMore = { tab = 2 })
+                        }
+                        1 -> PayoutCard(activity, state, toast, refresh)
+                        2 -> ActivityCard(state.entries, onMore = null)
+                        else -> {
+                            ChecklistCard(activity, state, askPermissions)
+                            SectionCard {
+                                CardTitle("Ce téléphone")
+                                InfoLine("Nom", state.deviceName.ifEmpty { "—" })
+                                InfoLine("Site", hostOf(state.serverUrl))
+                                InfoLine("Dernier contact", if (state.lastSync > 0) relative(state.lastSync) else "—")
+                                InfoLine("Version", BuildConfig.VERSION_NAME)
+                                Spacer(Modifier.height(12.dp))
+                                OutlinedButton(onClick = syncNow, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) { Text("Tester la connexion") }
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(onClick = requeue, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) { Text("Renvoyer les SMS des dernières 24 h") }
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedButton(onClick = { activity.openAppSettings() }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) { Text("Paramètres Android de l'application") }
+                                Spacer(Modifier.height(8.dp))
+                                TextButton(onClick = { confirmUnpair = true }, modifier = Modifier.fillMaxWidth()) { Text("Dissocier ce téléphone", color = Brand.Red) }
+                            }
+                            PrivacyNote()
+                        }
                     }
                 }
             }
         }
-        item {
-            Column(
-                Modifier.padding(horizontal = 16.dp).padding(top = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                StatusCard(state)
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatTile("SMS transmis", state.sentToday.toString(), "aujourd'hui", Modifier.weight(1f))
-                    StatTile("Paiements", state.matchedToday.toString(), "confirmés", Modifier.weight(1f), Brand.Green)
-                    StatTile("En attente", state.pending.toString(), "d'envoi", Modifier.weight(1f), if (state.pending > 0) Brand.Amber else null)
-                }
-                ChecklistCard(activity, state, askPermissions)
-                PayoutCard(activity, state, toast, refresh)
-                ActivityCard(state.entries)
-                PrivacyNote()
-                Text(
-                    "Version ${BuildConfig.VERSION_NAME}",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
-                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
+            listOf(
+                Triple("Accueil", Icons.Filled.Home, 0),
+                Triple("Envois", Icons.Filled.Send, 1),
+                Triple("Journal", Icons.Filled.List, 2),
+                Triple("Réglages", Icons.Filled.Settings, 3),
+            ).forEach { (label, icon, i) ->
+                NavigationBarItem(
+                    selected = tab == i, onClick = { tab = i },
+                    icon = {
+                        if (i == 3 && todo > 0) BadgedBox(badge = { Badge { Text(todo.toString()) } }) { Icon(icon, label) }
+                        else Icon(icon, label)
+                    },
+                    label = { Text(label, fontSize = 12.sp) },
                 )
             }
         }
@@ -511,6 +557,84 @@ fun HomeScreen(
         )
     }
 }
+
+/** Barre du haut claire, grand titre (style tableau de bord). */
+@Composable
+private fun TopBar(title: String, subtitle: String, actions: @Composable () -> Unit) {
+    Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)).background(Brand.Blue),
+                contentAlignment = Alignment.Center
+            ) { Icon(Icons.Filled.Email, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+            Spacer(Modifier.width(10.dp))
+            Text("Passerelle Pay", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            actions()
+        }
+        Spacer(Modifier.height(18.dp))
+        Text(title, fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, color = MaterialTheme.colorScheme.onBackground)
+        Text(subtitle, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun RoundIcon(onClick: () -> Unit, enabled: Boolean = true, content: @Composable () -> Unit) {
+    Box(
+        Modifier.size(46.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { content() }
+}
+
+/** Grande carte chiffrée : libellé, gros chiffre, détail. */
+@Composable
+private fun BigStat(label: String, value: String, sub: String, icon: ImageVector, modifier: Modifier = Modifier, accent: Color? = null) {
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f), maxLines = 2)
+                Box(Modifier.size(32.dp).clip(CircleShape).background(Brand.BlueSoft), contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = accent ?: Brand.Blue, modifier = Modifier.size(17.dp))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, color = accent ?: MaterialTheme.colorScheme.onSurface, maxLines = 1)
+            Text(sub, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+    }
+}
+
+@Composable
+private fun ActionBanner(title: String, sub: String, action: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(Brand.AmberSoft).clickable(onClick = onClick).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.Warning, null, tint = Brand.Amber, modifier = Modifier.size(26.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Brand.Amber)
+            Text(sub, fontSize = 12.sp, color = Brand.Amber)
+        }
+        Text(action, fontWeight = FontWeight.Bold, color = Brand.Amber)
+    }
+}
+
+@Composable
+private fun InfoLine(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+        Text(label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Text(value, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier = this.clickable(onClick = onClick)
 
 private enum class Health { OK, WARN, ERROR }
 
@@ -681,8 +805,32 @@ private fun PayoutCard(activity: MainActivity, state: UiState, toast: (String) -
 private fun PinRow(activity: MainActivity, op: PayoutOp, hasPin: Boolean, toast: (String) -> Unit, refresh: () -> Unit) {
     var pin by remember { mutableStateOf("") }
     var sim by remember { mutableStateOf(activity.store.simFor(op.code)) }
+    val isApp = op.ussd.startsWith("app:")
+    var appOn by remember { mutableStateOf(activity.store.appPayoutOn(op.code)) }
     HorizontalDivider(Modifier.padding(vertical = 8.dp))
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    if (isApp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(op.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(
+                    if (appOn) "✅ Envois par l'application ${op.name} activés" else "Le téléphone ouvre l'application ${op.name} et fait l'envoi",
+                    fontSize = 12.sp, color = if (appOn) Brand.Green else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = appOn, onCheckedChange = {
+                appOn = it
+                activity.store.setAppPayout(op.code, it)
+                activity.store.log(if (it) "💸 Envois ${op.name} activés" else "Envois ${op.name} désactivés")
+                refresh()
+            })
+        }
+        if (!appOn) return
+        Text(
+            "L'application ${op.name} doit être installée et connectée à votre compte sur ce téléphone. Code secret : seulement si ${op.name} le demande à l'ouverture.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 6.dp)
+        )
+    }
+    if (!isApp) Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(op.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             Text(
@@ -724,9 +872,13 @@ private fun PinRow(activity: MainActivity, op: PayoutOp, hasPin: Boolean, toast:
 }
 
 @Composable
-private fun ActivityCard(entries: List<LogEntry>) {
+private fun ActivityCard(entries: List<LogEntry>, onMore: (() -> Unit)? = null) {
     SectionCard {
-        CardTitle("Activité récente")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Activité récente", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            if (onMore != null) TextButton(onClick = onMore) { Text("Tout voir") }
+        }
+        Spacer(Modifier.height(6.dp))
         if (entries.isEmpty()) {
             Text("Aucun événement pour l'instant. Les SMS de paiement apparaîtront ici.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         }

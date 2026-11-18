@@ -117,13 +117,14 @@ object PayoutRunner {
 
     /** Opérateurs pour lesquels un code secret est enregistré. */
     fun readyOperators(ctx: Context, store: Store): List<String> =
-        store.payoutOperators.filter { PinVault.has(ctx, it.code) }.map { it.code }
+        store.payoutOperators.filter { PinVault.has(ctx, it.code) || (it.ussd.startsWith("app:") && store.appPayoutOn(it.code)) }.map { it.code }
 
     fun ready(ctx: Context, store: Store): Boolean =
         store.isPaired && store.payoutsEnabled && accessibilityOn(ctx) && callPermission(ctx) && readyOperators(ctx, store).isNotEmpty()
 
     /** Bloquant (≈ 90 s max) : à appeler hors du thread principal. Retourne (statut, message, code secret envoyé). */
     fun run(ctx: Context, store: Store, j: PayoutJob): Triple<String, String, Boolean> {
+        if (j.ussd.startsWith("app:wave")) return WaveDriver.run(ctx, j, PinVault.get(ctx, j.op))
         val secret = PinVault.get(ctx, j.op) ?: return Triple("failed", "Code secret ${j.opName} non enregistré sur le téléphone", false)
         job = j; pin = secret; pinSent = false; sawDialog = false; resultText = null; failure = null; steps = 0
         val l = CountDownLatch(1).also { latch = it }
@@ -250,5 +251,163 @@ class WakeActivity : Activity() {
             )
         }
         Handler(Looper.getMainLooper()).postDelayed({ finish() }, 1200)
+    }
+}
+
+/* =========================================================================================
+ *  Envois Wave : le téléphone pilote l'application Wave comme une personne.
+ *  Accueil → Transfert → Saisir un nouveau numéro → Nom complet + Téléphone → Suivant
+ *  → Montant reçu → Envoyer. Wave n'a pas de code USSD.
+ * ========================================================================================= */
+object WaveDriver {
+    private const val NAME = "Client Paiement"
+    private val PIN_SCREEN = Regex("code\\s*secret|saisi\\w*\\s+(votre\\s+)?code|entrez\\s+(votre\\s+)?code|code\\s*pin|mot de passe", RegexOption.IGNORE_CASE)
+    private val SUCCESS = Regex("envoy[ée]\\s*!|transfert\\s+r[ée]ussi|succ[eè]s|r[ée]ussi|effectu[ée]", RegexOption.IGNORE_CASE)
+
+    fun wavePackage(ctx: Context): String? {
+        val pm = ctx.packageManager
+        val list = pm.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)
+            .map { it.activityInfo.packageName }.filter { it.startsWith("com.wave.") }.distinct()
+        return list.firstOrNull { it.contains("personal") } ?: list.firstOrNull { !it.contains("business") } ?: list.firstOrNull()
+    }
+
+    private fun flatten(n: AccessibilityNodeInfo?, out: MutableList<AccessibilityNodeInfo>, depth: Int = 0) {
+        if (n == null || depth > 30) return
+        out += n
+        for (i in 0 until n.childCount) flatten(n.getChild(i), out, depth + 1)
+    }
+
+    private fun label(n: AccessibilityNodeInfo): String =
+        (n.text?.toString() ?: n.contentDescription?.toString() ?: "").trim()
+
+    private fun clickNode(n: AccessibilityNodeInfo?): Boolean {
+        var c = n
+        var i = 0
+        while (c != null && i < 6) {
+            if (c.isClickable && c.isEnabled) return c.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            c = c.parent; i++
+        }
+        return false
+    }
+
+    private fun setText(n: AccessibilityNodeInfo, v: String) {
+        n.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        n.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        val b = Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, v) }
+        n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, b)
+    }
+
+    /** Signature de la 1re opération de l'historique (pour reconnaître la nouvelle). */
+    private fun topTransaction(nodes: List<AccessibilityNodeInfo>): String {
+        val i = nodes.indexOfFirst { Regex("^(À|A|De)\\s").containsMatchIn(label(it)) && Regex("\\d{2} \\d{2} \\d{2} \\d{2}").containsMatchIn(label(it)) }
+        if (i < 0) return ""
+        return nodes.subList(i, minOf(nodes.size, i + 4)).joinToString(" | ") { label(it) }
+    }
+
+    fun run(ctx: Context, j: PayoutJob, pin: String?): Triple<String, String, Boolean> {
+        val svc = UssdAccessibilityService.instance ?: return Triple("failed", "Accessibilité désactivée : activez « Passerelle Pay : envois d'argent »", false)
+        val pkg = wavePackage(ctx) ?: return Triple("failed", "Application Wave introuvable sur ce téléphone", false)
+        val launch = ctx.packageManager.getLaunchIntentForPackage(pkg) ?: return Triple("failed", "Impossible d'ouvrir Wave", false)
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
+        @Suppress("DEPRECATION")
+        val screen = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "gateway:wave")
+        val phoneFmt = j.phone.chunked(2).joinToString(" ")
+        var sent = false
+        var formDone = false
+        var amountDone = false
+        var pinAt = 0L
+        var initialTop: String? = null
+        var lastSeen = ""
+        PayoutRunner.job = j
+        try {
+            screen.acquire(150_000)
+            try {
+                ctx.startActivity(Intent(ctx, WakeActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION))
+            } catch (_: Exception) {
+            }
+            Thread.sleep(1500)
+            ctx.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+            val deadline = System.currentTimeMillis() + 90_000
+            var sentAt = 0L
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(800)
+                val root = svc.rootInActiveWindow ?: continue
+                if (root.packageName?.toString() != pkg) continue
+                val nodes = mutableListOf<AccessibilityNodeInfo>().also { flatten(root, it) }
+                val all = nodes.joinToString(" ") { label(it) }
+                lastSeen = all.take(300)
+                fun find(rx: Regex) = nodes.firstOrNull { rx.containsMatchIn(label(it)) }
+                val edits = nodes.filter { it.isEditable }
+
+                if (Regex("solde insuffisant", RegexOption.IGNORE_CASE).containsMatchIn(all)) {
+                    return Triple("failed", "Wave : solde insuffisant pour envoyer ${j.amount} F (+ frais)", false)
+                }
+                // Code secret demandé par Wave (pavé numérique de l'application)
+                val digits = nodes.filter { Regex("^[0-9]$").matches(label(it)) }
+                if (PIN_SCREEN.containsMatchIn(all) && digits.map { label(it) }.distinct().size >= 10 && edits.isEmpty()) {
+                    if (pin == null) return Triple(if (sent) "unknown" else "failed", "Wave demande le code secret : enregistrez-le dans l'application (Envois)", sent)
+                    if (System.currentTimeMillis() - pinAt > 6000) {
+                        pinAt = System.currentTimeMillis()
+                        for (d in pin) {
+                            clickNode(digits.firstOrNull { label(it) == d.toString() })
+                            Thread.sleep(180)
+                        }
+                    }
+                    continue
+                }
+                when {
+                    sent -> {
+                        val top = topTransaction(nodes)
+                        if (top.isNotEmpty() && top.contains(phoneFmt) && top != initialTop) {
+                            return Triple("success", "Wave : envoyé ${j.amount} F à $phoneFmt · $top", true)
+                        }
+                        if (SUCCESS.containsMatchIn(all) && find(Regex("^Montant Re", RegexOption.IGNORE_CASE)) == null) {
+                            find(Regex("^(Terminé|Fermer|OK|Retour à l'accueil)$", RegexOption.IGNORE_CASE))?.let { clickNode(it) }
+                            return Triple("done", "Wave : ${all.take(300)}", true)
+                        }
+                        find(Regex("^(Confirmer|Continuer|Valider)$", RegexOption.IGNORE_CASE))?.let { clickNode(it) }
+                        if (System.currentTimeMillis() - sentAt > 45_000) break
+                    }
+                    find(Regex("^Montant Re", RegexOption.IGNORE_CASE)) != null || find(Regex("Frais Wave", RegexOption.IGNORE_CASE)) != null -> {
+                        if (!amountDone) {
+                            // 2e champ = « Montant reçu » : le client reçoit exactement le montant (frais payés par l'envoyeur).
+                            val target = if (edits.size >= 2) edits[1] else edits.lastOrNull()
+                            if (target != null) {
+                                setText(target, j.amount.toString())
+                                amountDone = true
+                            }
+                            continue
+                        }
+                        val btn = nodes.firstOrNull { label(it).equals("Envoyer", true) }
+                        if (btn != null && clickNode(btn)) {
+                            sent = true
+                            sentAt = System.currentTimeMillis()
+                        }
+                    }
+                    find(Regex("^Nom complet", RegexOption.IGNORE_CASE)) != null -> {
+                        if (!formDone && edits.size >= 2) {
+                            setText(edits[0], NAME)
+                            Thread.sleep(300)
+                            setText(edits[1], j.phone)
+                            formDone = true
+                            continue
+                        }
+                        clickNode(nodes.firstOrNull { label(it).equals("Suivant", true) })
+                    }
+                    find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)) != null ->
+                        clickNode(find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)))
+                    find(Regex("^Transfert$", RegexOption.IGNORE_CASE)) != null -> {
+                        if (initialTop == null) initialTop = topTransaction(nodes)
+                        clickNode(find(Regex("^Transfert$", RegexOption.IGNORE_CASE)))
+                    }
+                }
+            }
+            return if (sent) Triple("unknown", "Wave : pas de confirmation visible après « Envoyer ». Dernier écran : $lastSeen", true)
+            else Triple("failed", "Wave : écran inattendu, rien n'a été envoyé. Dernier écran : $lastSeen", false)
+        } finally {
+            PayoutRunner.job = null
+            svc.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            if (screen.isHeld) screen.release()
+        }
     }
 }

@@ -48,6 +48,9 @@ function operator_can_payout(?array $op): bool
 /** Code USSD à composer, sans le code secret (le téléphone le saisit lui-même). */
 function payout_dial_string(array $op, array $payout): string
 {
+    if (str_starts_with(trim((string)$op['payout_ussd']), 'app:')) {
+        return trim((string)$op['payout_ussd']); // ex. app:wave : le téléphone pilote l'application
+    }
     return str_replace(
         ['{number}', '{amount}'],
         [(string)$payout['phone'], (string)(int)round((float)$payout['amount'])],

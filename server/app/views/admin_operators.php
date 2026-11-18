@@ -58,7 +58,7 @@
       <div><label>Frais payés par le client (%)</label><input type="text" inputmode="decimal" name="fee_percent" value="<?= h(rtrim(rtrim(number_format((float)($o['fee_percent'] ?? 0), 2, '.', ''), '0'), '.')) ?>" placeholder="0">
         <span class="small muted">Ex. Wave : 0,5. Le client est alors invité à remplir « Montant reçu » pour que vous receviez le montant exact.</span></div>
       <div><label>Code USSD pour <strong>envoyer</strong> (remboursements, envois)</label><input type="text" name="payout_ussd" value="<?= h($o['payout_ussd'] ?? '') ?>" placeholder="Ex. *144*2*1*{number}*{amount}#">
-        <span class="small muted"><code>{number}</code> = numéro du bénéficiaire. Le code secret est saisi par le téléphone (jamais envoyé au site). Vide = pas d'envoi par cet opérateur.</span></div>
+        <span class="small muted"><code>{number}</code> = numéro du bénéficiaire. Le code secret est saisi par le téléphone (jamais envoyé au site). Pour Wave : <code>app:wave</code> (le téléphone utilise l'application Wave). Vide = pas d'envoi par cet opérateur.</span></div>
       <div style="grid-column:1/-1"><label>Instructions affichées au client (optionnel)</label>
         <textarea name="instructions" rows="2" style="min-height:56px;font-family:inherit"><?= h($o['instructions']) ?></textarea></div>
     </div>

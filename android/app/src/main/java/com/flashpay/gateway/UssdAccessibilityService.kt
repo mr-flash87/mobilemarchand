@@ -26,6 +26,7 @@ class UssdAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (PayoutRunner.job == null || event == null) return
+        if (PayoutRunner.job?.ussd?.startsWith("app:") == true) return // envoi Wave : piloté par WaveDriver
         val pkg = event.packageName?.toString() ?: return
         if (pkg == packageName) return
         val cls = event.className?.toString() ?: ""
