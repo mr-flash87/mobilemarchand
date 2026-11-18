@@ -441,14 +441,14 @@ object WaveDriver {
     }
 
     /** Appui « avec le doigt » au centre de l'élément (si le clic d'accessibilité ne passe pas). */
-    private fun tap(svc: AccessibilityService, n: AccessibilityNodeInfo?): Boolean {
+    private fun tap(svc: AccessibilityService, n: AccessibilityNodeInfo?, durationMs: Long = 80): Boolean {
         if (n == null || Build.VERSION.SDK_INT < 24) return false
         val r = android.graphics.Rect()
         n.getBoundsInScreen(r)
         if (r.isEmpty) return false
         val path = android.graphics.Path().apply { moveTo(r.exactCenterX(), r.exactCenterY()) }
         val g = android.accessibilityservice.GestureDescription.Builder()
-            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 80))
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, durationMs))
             .build()
         val done = CountDownLatch(1)
         var completed = false
@@ -517,8 +517,24 @@ object WaveDriver {
     }
 
     fun run(ctx: Context, j: PayoutJob, pin: String?): Triple<String, String, Boolean> {
+        val trace = mutableListOf<String>()
+        val r = try {
+            runInner(ctx, j, pin, trace)
+        } catch (e: Exception) {
+            val pressed = trace.any { it.startsWith("Envoyer") }
+            Triple(if (pressed) "unknown" else "failed", "Wave : erreur ${e.javaClass.simpleName} ${e.message ?: ""}", pressed)
+        }
+        if (r.first == "success" || trace.isEmpty()) return r
+        // Les dernières étapes remontent sur le site et Telegram : diagnostic sans ouvrir le journal.
+        return Triple(r.first, r.second.take(160) + " ‖ Étapes : " + trace.takeLast(6).joinToString(" / ") { it.take(55) }, r.third)
+    }
+
+    private fun runInner(ctx: Context, j: PayoutJob, pin: String?, trace: MutableList<String>): Triple<String, String, Boolean> {
         val store = Store.get(ctx)
-        fun log(line: String) = store.log("🌊 " + line.take(150))
+        fun log(line: String) {
+            store.log("🌊 " + line.take(150))
+            trace += line.removePrefix("Wave : ")
+        }
         val svc = UssdAccessibilityService.instance ?: return Triple("failed", "Accessibilité désactivée : activez « Passerelle Pay : envois d'argent »", false)
         val gestures = (svc.serviceInfo?.capabilities ?: 0) and android.accessibilityservice.AccessibilityServiceInfo.CAPABILITY_CAN_PERFORM_GESTURES != 0
         log("Wave : début · appui au doigt autorisé = ${if (gestures) "oui" else "NON (désactivez puis réactivez l'accessibilité Passerelle Pay)"}")
@@ -657,16 +673,18 @@ object WaveDriver {
                             return Triple("failed", "Wave : le bouton « Suivant » ne réagit pas (6 appuis). $lastSeen", false)
                         }
                         formPresses++
-                        when (formPresses) {
-                            1 -> log("Wave : Entrée sur le numéro → ${pressEnter(svc, edits.getOrNull(1))}")
-                            3 -> log("Wave : fermeture du clavier → ${closeKeyboard(svc, edits.getOrNull(1))}")
-                            else -> {}
+                        // Chaque essai utilise une méthode différente (on saura laquelle marche sur ce téléphone).
+                        val field = edits.getOrNull(1)
+                        val btn = next
+                        val how = when (formPresses) {
+                            1 -> "Entrée " + pressEnter(svc, field)
+                            2 -> "geste " + (if (tap(svc, btn)) "fait" else "refusé")
+                            3 -> "clic " + (btn?.performAction(AccessibilityNodeInfo.ACTION_CLICK) ?: "sans bouton")
+                            4 -> "clavier " + closeKeyboard(svc, field) + ", geste " + (if (Thread.sleep(800).let { tap(svc, btn) }) "fait" else "refusé")
+                            5 -> "parent " + press(svc, btn)
+                            else -> "geste long " + (if (tap(svc, btn, 400)) "fait" else "refusé")
                         }
-                        Thread.sleep(1200)
-                        val cur = mutableListOf<AccessibilityNodeInfo>().also { l -> svc.rootInActiveWindow?.let { flatten(it, l) } }
-                        if (cur.none { Regex("^Nom complet", RegexOption.IGNORE_CASE).containsMatchIn(label(it)) }) continue // déjà passé
-                        val btn = cur.firstOrNull { label(it).equals("Suivant", true) } ?: next
-                        log("Wave : Suivant (actif=${isActive(btn)}) → ${tapFirst(svc, btn)}")
+                        log("Suivant essai $formPresses (actif=${isActive(btn)}, cliquable=${btn?.isClickable}) : $how")
                         Thread.sleep(2500)
                     }
                     find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)) != null ->
