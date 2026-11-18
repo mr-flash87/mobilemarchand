@@ -247,6 +247,13 @@ function tg_handle(array $u): void
         $text = '/creer ' . $text; // en privé, un simple « 5000 » crée un paiement
     }
 
+    // Code de liaison envoyé tel quel (ex. « FP2K6HGN6X », « /start FP… », « lier fp… »).
+    if (preg_match('~^/?(?:(?:start|lier)(?:@\w+)?\s*)?(FP[A-Z0-9\s-]{8,14})$~i', $text, $cm)
+        && strlen($code = strtoupper((string)preg_replace('/[\s-]+/', '', $cm[1]))) === 10) {
+        tg_do_link($chat, $from, $code);
+        return;
+    }
+
     if (!preg_match('~^/([A-Za-z_]+)(?:@([A-Za-z0-9_]+))?(?:\s+(.*))?$~s', $text, $m)) {
         if ($private) {
             tg_send($chat['id'], 'Touchez /menu pour afficher le tableau de bord, ou /aide.');
@@ -260,10 +267,7 @@ function tg_handle(array $u): void
     $args = trim($m[3] ?? '');
 
     if (($cmd === 'start' || $cmd === 'lier') && $args !== '') {
-        tg_send($chat['id'], tg_link_chat($chat, $from, strtoupper($args)));
-        if (tg_load_chat($chat['id'])) {
-            tg_reply_screen($chat['id'], tg_screen_menu());
-        }
+        tg_do_link($chat, $from, strtoupper(preg_replace('/[\s-]+/', '', $args)));
         return;
     }
     if (in_array($cmd, ['start', 'aide', 'help'], true) && !tg_load_chat($chat['id'])) {
@@ -479,6 +483,20 @@ function tg_load_chat($chatId): ?array
     }
     ctx_set('merchant', $m);
     return $row;
+}
+
+function tg_do_link(array $chat, array $from, string $code): void
+{
+    $answer = tg_link_chat($chat, $from, $code);
+    tg_send($chat['id'], $answer);
+    if (str_starts_with($answer, '✅')) {
+        if (tg_load_chat($chat['id'])) {
+            tg_reply_screen($chat['id'], tg_screen_menu());
+        } else {
+            log_line('telegram: liaison enregistrée mais introuvable pour ' . $chat['id']);
+            tg_send($chat['id'], '⚠️ La liaison n\'a pas pu être relue. Réessayez avec un nouveau code ; si cela continue, contactez le support.');
+        }
+    }
 }
 
 function tg_link_chat(array $chat, array $from, string $code): string
@@ -1007,7 +1025,7 @@ function tg_help_unlinked(): string
         . "Pour recevoir vos paiements ici :\n"
         . "1. Connectez-vous à votre espace sur le site\n"
         . "2. Ouvrez le menu <b>Telegram</b> et générez un code\n"
-        . "3. Touchez le lien proposé, ou envoyez-moi <code>/lier VOTRECODE</code>\n\n"
+        . "3. Touchez le lien proposé, ou <b>envoyez-moi simplement le code</b> (ex. <code>FP2K6HGN6X</code>)\n\n"
         . 'Pour un groupe : ajoutez-moi au groupe, puis un administrateur du groupe envoie <code>/lier VOTRECODE</code>.';
 }
 
