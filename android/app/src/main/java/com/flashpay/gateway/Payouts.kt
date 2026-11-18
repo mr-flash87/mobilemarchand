@@ -183,8 +183,11 @@ object PayoutRunner {
         val extras = Bundle()
         if (ctx.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
             try {
-                val accounts = tm.callCapablePhoneAccounts
-                if (accounts.size > 1) {
+                val all = tm.callCapablePhoneAccounts
+                val accounts = activeAccounts(ctx, tm, all)
+                if (accounts.size == 1 && all.size > 1) {
+                    extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, accounts[0])
+                } else if (accounts.size > 1) {
                     val choice = store.simFor(j.op)
                     // Noms possibles de la SIM (ex. Moov Africa Burkina s'affiche souvent « Onatel » ou « Telmob »).
                     val aliases = (SIM_ALIASES[j.op.lowercase()] ?: emptyList()) + listOf(j.op.lowercase(), j.opName.lowercase().substringBefore(' '))
@@ -199,11 +202,37 @@ object PayoutRunner {
             } catch (_: SecurityException) {
             }
         }
+        try {
+            @Suppress("DEPRECATION")
+            val h = extras.getParcelable<android.telecom.PhoneAccountHandle>(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE)
+            val simLabel = h?.let { tm.getPhoneAccount(it)?.label?.toString() } ?: "par défaut"
+            store.log("📞 ${j.opName} : code composé sur la SIM « $simLabel »")
+        } catch (_: Exception) {
+        }
         return try {
             tm.placeCall(Uri.fromParts("tel", j.ussd, null), extras)
             null
         } catch (e: Exception) {
             "Impossible de composer le code USSD : ${e.message}"
+        }
+    }
+
+    /** SIM réellement actives (une SIM désactivée reste parfois listée par Android). */
+    private fun activeAccounts(ctx: Context, tm: TelecomManager, all: List<android.telecom.PhoneAccountHandle>): List<android.telecom.PhoneAccountHandle> {
+        if (all.size <= 1) return all
+        return try {
+            val sm = ctx.getSystemService(android.telephony.SubscriptionManager::class.java)
+            val subs = sm.activeSubscriptionInfoList ?: return all
+            if (subs.isEmpty()) return all
+            val keys = subs.flatMap { listOfNotNull(it.subscriptionId.toString(), try { it.iccId } catch (_: Exception) { null }) }.filter { it.isNotEmpty() }
+            val byId = all.filter { h -> keys.any { k -> h.id == k || h.id.startsWith(k) || k.startsWith(h.id) } }
+            if (byId.isNotEmpty()) return byId
+            // Identifiants illisibles : on compare les noms des SIM actives.
+            val names = subs.flatMap { listOf(it.displayName?.toString()?.lowercase() ?: "", it.carrierName?.toString()?.lowercase() ?: "") }.filter { it.isNotEmpty() }
+            val byName = all.filter { h -> val l = tm.getPhoneAccount(h)?.label?.toString()?.lowercase() ?: ""; names.any { n -> l.contains(n) || n.contains(l) } }
+            if (byName.isNotEmpty()) byName else all
+        } catch (_: Exception) {
+            all
         }
     }
 
@@ -284,7 +313,8 @@ class WakeActivity : Activity() {
  * ========================================================================================= */
 object WaveDriver {
     private const val NAME = "Client Paiement"
-    private val PIN_SCREEN = Regex("code\\s*secret|saisi\\w*\\s+(votre\\s+)?code|entrez\\s+(votre\\s+)?code|code\\s*pin|mot de passe", RegexOption.IGNORE_CASE)
+    private val PIN_SCREEN = Regex("code\\s*secret|saisi\\w*\\s+(votre\\s+)?code|entrez\\s+(votre\\s+)?code|tapez\\s+(votre\\s+)?code|votre\\s+code|code\\s*pin|code d'acc[eè]s|d[ée]verrouill|mot de passe|\\bpin\\b", RegexOption.IGNORE_CASE)
+    private val WAVE_FLOW = Regex("Montant Re|Montant Envoy|Nom complet|Saisir un nouveau num", RegexOption.IGNORE_CASE)
     private val SUCCESS = Regex("envoy[ée]\\s*!|transfert\\s+r[ée]ussi|succ[eè]s|r[ée]ussi|effectu[ée]", RegexOption.IGNORE_CASE)
 
     fun wavePackage(ctx: Context): String? {
@@ -367,14 +397,22 @@ object WaveDriver {
                 }
                 // Code secret demandé par Wave (pavé numérique de l'application)
                 val digits = nodes.filter { Regex("^[0-9]$").matches(label(it)) }
-                // Pavé du code Wave (4 chiffres) : 10 touches 0-9 dans l'application, sans champ de saisie.
-                if (digits.map { label(it) }.distinct().size >= 10 && edits.isEmpty() && (PIN_SCREEN.containsMatchIn(all) || find(Regex("^Transfert$", RegexOption.IGNORE_CASE)) == null)) {
-                    if (pin == null) return Triple(if (sent) "unknown" else "failed", "Wave demande le code secret : enregistrez-le dans l'application (Envois)", sent)
+                // Écran du code d'ouverture de Wave (4 chiffres) : pavé de touches 0-9 ou champ caché + clavier.
+                val keyCount = digits.map { label(it) }.distinct().size
+                lastSeen = "champs=${edits.size}, touches=$keyCount · " + all.take(260)
+                val pinScreen = !WAVE_FLOW.containsMatchIn(all) &&
+                    (PIN_SCREEN.containsMatchIn(all) || (keyCount >= 10 && find(Regex("^Transfert$", RegexOption.IGNORE_CASE)) == null))
+                if (pinScreen) {
+                    if (pin == null) return Triple(if (sent) "unknown" else "failed", "Wave demande son code à 4 chiffres : enregistrez-le dans l'application (onglet Envois, ligne Wave)", sent)
                     if (System.currentTimeMillis() - pinAt > 6000) {
                         pinAt = System.currentTimeMillis()
-                        for (d in pin) {
-                            clickNode(digits.firstOrNull { label(it) == d.toString() })
-                            Thread.sleep(180)
+                        if (keyCount >= 10) {
+                            for (d in pin) {
+                                clickNode(digits.firstOrNull { label(it) == d.toString() })
+                                Thread.sleep(250)
+                            }
+                        } else if (edits.isNotEmpty()) {
+                            setText(edits[0], pin)
                         }
                     }
                     continue
