@@ -33,11 +33,11 @@ import javax.crypto.spec.GCMParameterSpec
 data class PayoutOp(val code: String, val name: String, val ussd: String)
 
 /** Envoi demandé par le site. */
-data class PayoutJob(val ref: String, val op: String, val opName: String, val phone: String, val amount: Int, val ussd: String) {
+data class PayoutJob(val ref: String, val op: String, val opName: String, val phone: String, val amount: Int, val ussd: String, val feePercent: Double = 0.0) {
     companion object {
         fun from(o: JSONObject) = PayoutJob(
             o.getString("id"), o.getString("operator"), o.optString("operator_name", o.getString("operator")),
-            o.getString("phone"), o.getInt("amount"), o.getString("ussd"),
+            o.getString("phone"), o.getInt("amount"), o.getString("ussd"), o.optDouble("fee_percent", 0.0),
         )
     }
 }
@@ -420,6 +420,13 @@ object WaveDriver {
         return svc.dispatchGesture(g, null, null)
     }
 
+    /** Appui « au doigt » d'abord (le plus fiable avec Wave), sinon clic d'accessibilité. */
+    private fun tapFirst(svc: AccessibilityService, n: AccessibilityNodeInfo?): String {
+        if (n == null) return "bouton introuvable"
+        if (tap(svc, n)) return "appui au doigt"
+        return press(svc, n)
+    }
+
     /** Appui robuste : clic d'accessibilité sur l'élément et ses parents, puis appui « au doigt ». Retourne la méthode utilisée. */
     private fun press(svc: AccessibilityService, n: AccessibilityNodeInfo?): String {
         if (n == null) return "bouton introuvable"
@@ -454,7 +461,10 @@ object WaveDriver {
         var formDone = false
         var amountDone = false
         var formTries = 0
-        var amountTries = 0
+        var formPresses = 0
+        var sendPresses = 0
+        // Montant envoyé = montant + frais (ex. 0,5 %), arrondi au multiple de 5 supérieur (100 -> 105, 1000 -> 1005).
+        val sendAmount = (Math.ceil(j.amount * (1 + j.feePercent / 100.0) / 5.0) * 5).toInt()
         var pinAt = 0L
         var initialTop: String? = null
         var lastSeen = ""
@@ -508,57 +518,67 @@ object WaveDriver {
                     sent -> {
                         val top = topTransaction(nodes)
                         if (top.isNotEmpty() && top.contains(phoneFmt) && top != initialTop) {
-                            return Triple("success", "Wave : envoyé ${j.amount} F à $phoneFmt · $top", true)
+                            return Triple("success", "Wave : envoyé $sendAmount F (le client reçoit ~${j.amount} F) à $phoneFmt · $top", true)
                         }
                         if (SUCCESS.containsMatchIn(all) && find(Regex("^Montant Re", RegexOption.IGNORE_CASE)) == null) {
-                            find(Regex("^(Terminé|Fermer|OK|Retour à l'accueil)$", RegexOption.IGNORE_CASE))?.let { clickNode(it) }
+                            find(Regex("^(Terminé|Fermer|OK|Retour à l'accueil)$", RegexOption.IGNORE_CASE))?.let { tapFirst(svc, it) }
                             return Triple("done", "Wave : ${all.take(300)}", true)
                         }
-                        find(Regex("^(Confirmer|Continuer|Valider)$", RegexOption.IGNORE_CASE))?.let { clickNode(it) }
+                        find(Regex("^(Confirmer|Continuer|Valider)$", RegexOption.IGNORE_CASE))?.let { tapFirst(svc, it) }
+                        // Toujours sur l'écran du montant : l'appui sur « Envoyer » n'a pas pris, on réappuie (3 fois max).
+                        val btn = nodes.firstOrNull { label(it).equals("Envoyer", true) }
+                        if (btn != null && find(Regex("Montant Envoy|Montant Re", RegexOption.IGNORE_CASE)) != null &&
+                            System.currentTimeMillis() - sentAt > 5_000 && sendPresses < 3) {
+                            sendPresses++
+                            log("Wave : toujours sur le montant, nouvel appui sur Envoyer (${sendPresses}) → ${tapFirst(svc, btn)}")
+                            sentAt = System.currentTimeMillis()
+                        }
                         if (System.currentTimeMillis() - sentAt > 45_000) break
                     }
-                    find(Regex("^Montant Re", RegexOption.IGNORE_CASE)) != null || find(Regex("Frais Wave", RegexOption.IGNORE_CASE)) != null -> {
+                    find(Regex("Montant Envoy|Montant Re|Frais Wave", RegexOption.IGNORE_CASE)) != null -> {
                         val btn = nodes.firstOrNull { label(it).equals("Envoyer", true) }
-                        lastSeen = "écran montant, bouton Envoyer actif=${isActive(btn)}, champs=${edits.size} · " + all.take(220)
-                        if (!amountDone || (!isActive(btn) && amountTries < 3)) {
-                            // 2e champ = « Montant reçu » : le client reçoit exactement le montant (frais payés par l'envoyeur).
-                            val target = if (edits.size >= 2) edits[1] else edits.lastOrNull()
+                        lastSeen = "écran montant, Envoyer actif=${isActive(btn)}, champs=${edits.size} · " + all.take(220)
+                        if (!amountDone) {
+                            // 1er champ = « Montant envoyé » : montant + frais Wave, arrondi au multiple de 5 supérieur
+                            // (Wave n'accepte que des montants finissant par 0 ou 5). Wave calcule « Montant reçu ».
+                            val target = edits.firstOrNull()
                             if (target != null) {
-                                typeText(target, j.amount.toString())
+                                typeText(target, sendAmount.toString())
                                 amountDone = true
-                                amountTries++
-                                log("Wave : montant reçu saisi (essai $amountTries) : « ${target.text} »")
-                                Thread.sleep(600)
+                                Thread.sleep(1500)
+                                log("Wave : montant envoyé « ${target.text} » (reçu par le client : ${edits.getOrNull(1)?.text ?: "?"})")
                             }
                             continue
                         }
-                        val typed = (if (edits.size >= 2) edits[1] else edits.lastOrNull())?.text?.toString() ?: ""
-                        if (btn != null && (isActive(btn) || amountTries >= 3)) {
-                            val how = press(svc, btn)
-                            log("Wave : montant « $typed », Envoyer (actif=${isActive(btn)}) → $how")
-                            if (!how.startsWith("échec") && how != "bouton introuvable") {
-                                sent = true
-                                sentAt = System.currentTimeMillis()
-                            }
+                        val how = tapFirst(svc, btn)
+                        log("Wave : Envoyer (actif=${isActive(btn)}) → $how")
+                        if (btn != null) {
+                            sent = true
+                            sentAt = System.currentTimeMillis()
+                            sendPresses = 1
                         }
+                        Thread.sleep(2500)
                     }
                     find(Regex("^Nom complet", RegexOption.IGNORE_CASE)) != null -> {
                         val next = nodes.firstOrNull { label(it).equals("Suivant", true) }
-                        lastSeen = "écran nom/téléphone, bouton Suivant actif=${isActive(next)}, champs=${edits.size}, essai=$formTries · " + all.take(200)
-                        if (edits.size >= 2 && (!formDone || (!isActive(next) && formTries < 3))) {
-                            // 1er essai : numéro brut ; ensuite : numéro au format « 02 24 77 01 ».
+                        lastSeen = "écran nom/téléphone, Suivant actif=${isActive(next)}, champs=${edits.size}, appuis=$formPresses · " + all.take(200)
+                        val phoneOk = edits.size >= 2 && (edits[1].text?.toString() ?: "").filter { it.isDigit() }.endsWith(j.phone)
+                        if (edits.size >= 2 && (!formDone || (!phoneOk && formTries < 3))) {
                             typeText(edits[0], NAME)
                             Thread.sleep(300)
                             typeText(edits[1], if (formTries == 0) j.phone else phoneFmt)
                             formDone = true
                             formTries++
-                            log("Wave : nom et numéro saisis (essai $formTries) : « ${edits[0].text} » / « ${edits[1].text} »")
-                            Thread.sleep(600)
+                            log("Wave : nom et numéro saisis : « ${edits[0].text} » / « ${edits[1].text} »")
+                            Thread.sleep(800)
                             continue
                         }
-                        val how = press(svc, next)
-                        log("Wave : Suivant (actif=${isActive(next)}) → $how")
-                        Thread.sleep(1500)
+                        if (formPresses >= 6) {
+                            return Triple("failed", "Wave : le bouton « Suivant » ne réagit pas (6 appuis). $lastSeen", false)
+                        }
+                        formPresses++
+                        log("Wave : Suivant (actif=${isActive(next)}) → ${tapFirst(svc, next)}")
+                        Thread.sleep(2500)
                     }
                     find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)) != null ->
                         clickNode(find(Regex("Saisir un nouveau num", RegexOption.IGNORE_CASE)))

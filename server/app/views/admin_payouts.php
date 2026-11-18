@@ -36,7 +36,8 @@
         <label class="check"><input type="checkbox" name="payouts_enabled" value="1" <?= payouts_enabled() ? 'checked' : '' ?>> <span>Autoriser les envois d'argent sur la plateforme</span></label>
         <label class="check"><input type="checkbox" name="refund_auto" value="1" <?= setting('refund_auto', '1') === '1' ? 'checked' : '' ?>> <span>Remboursements demandés par l'API (commande annulée…) : partir automatiquement, sans validation, si le paiement a été confirmé par l'opérateur</span></label>
         <p class="small muted" style="margin:4px 0 8px">Les envois et remboursements lancés ici ou sur Telegram partent toujours tout de suite : votre clic vaut validation.</p>
-        <label>Autres envois par l'API : validation automatique jusqu'à (F) — <span class="muted">0 = tout valider à la main</span></label>
+        <label class="check"><input type="checkbox" name="payout_api_auto" value="1" <?= setting('payout_api_auto', '0') === '1' ? 'checked' : '' ?>> <span><strong>Tous les envois de l'API partent automatiquement</strong> (sans validation, dans la limite des plafonds ci-dessous)</span></label>
+        <label>Sinon : validation automatique jusqu'à (F) — <span class="muted">0 = tout valider à la main</span></label>
         <input type="number" name="payout_auto_max" min="0" value="<?= h(setting('payout_auto_max', '0')) ?>">
         <label>Maximum par envoi (F)</label><input type="number" name="payout_max" min="0" value="<?= h(setting('payout_max', '200000')) ?>">
         <label>Plafond par jour et par espace (F)</label><input type="number" name="payout_daily_limit" min="0" value="<?= h(setting('payout_daily_limit', '500000')) ?>">

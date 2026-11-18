@@ -766,6 +766,7 @@ function admin_payouts(string $method): void
         if ($a === 'settings' && is_admin_ctx()) {
             setting_set('payouts_enabled', !empty($_POST['payouts_enabled']) ? '1' : '0');
             setting_set('refund_auto', !empty($_POST['refund_auto']) ? '1' : '0');
+            setting_set('payout_api_auto', !empty($_POST['payout_api_auto']) ? '1' : '0');
             foreach (['payout_auto_max', 'payout_max', 'payout_daily_limit'] as $f) {
                 setting_set($f, (string)max(0, (int)($_POST[$f] ?? 0)));
             }

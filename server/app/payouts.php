@@ -123,6 +123,8 @@ function payout_create(array $in, ?array $merchant, string $by = 'api', ?array $
         $needApproval = false;
     } elseif ($payment && !empty($payment['sms_id']) && setting('refund_auto', '1') === '1') {
         $needApproval = false;
+    } elseif (setting('payout_api_auto', '0') === '1') {
+        $needApproval = false; // tous les envois de l'API partent seuls (dans la limite des plafonds)
     } else {
         $needApproval = $autoMax <= 0 || $amount > $autoMax;
     }
@@ -286,6 +288,7 @@ function payout_claim(array $device, array $operatorCodes): ?array
         'phone' => $o['phone'],
         'amount' => (int)$o['amount'],
         'ussd' => payout_dial_string($op, $o),
+        'fee_percent' => (float)($op['fee_percent'] ?? 0),
         'success_pattern' => (string)($op['payout_success'] ?? ''),
     ];
 }
