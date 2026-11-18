@@ -82,6 +82,9 @@
           <button class="btn sm ok" name="action" value="success" onclick="return confirm('L\'argent est-il bien parti (vérifié sur le téléphone) ?')">L'argent est parti</button>
           <button class="btn sm" name="action" value="failed" onclick="return confirm('Confirmer que l\'argent n\'est PAS parti ?')">Rien n'est parti</button>
         <?php endif; ?>
+        <?php if ($r['status'] === 'success'): ?>
+          <button class="btn sm" name="action" value="failed" onclick="return confirm('Corriger : le bénéficiaire n\'a RIEN reçu ?')">Corriger : rien reçu</button>
+        <?php endif; ?>
         <?php if ($r['status'] === 'failed'): ?>
           <button class="btn sm" name="action" value="retry" onclick="return confirm('Renvoyer cet envoi ?')">Réessayer</button>
         <?php endif; ?>

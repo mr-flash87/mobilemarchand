@@ -97,6 +97,8 @@ object PayoutRunner {
     @Volatile private var pin: String? = null
     @Volatile var pinSent = false
     @Volatile var sawDialog = false
+    /** Applications dont une fenêtre est apparue pendant l'envoi (diagnostic). */
+    val seenPackages: MutableSet<String> = java.util.Collections.synchronizedSet(LinkedHashSet())
     @Volatile private var resultText: String? = null
     @Volatile private var failure: String? = null
     @Volatile private var steps = 0
@@ -127,6 +129,7 @@ object PayoutRunner {
         if (j.ussd.startsWith("app:wave")) return WaveDriver.run(ctx, j, PinVault.get(ctx, j.op))
         val secret = PinVault.get(ctx, j.op) ?: return Triple("failed", "Code secret ${j.opName} non enregistré sur le téléphone", false)
         job = j; pin = secret; pinSent = false; sawDialog = false; resultText = null; failure = null; steps = 0
+        seenPackages.clear()
         val l = CountDownLatch(1).also { latch = it }
         val pm = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager
         @Suppress("DEPRECATION")
@@ -146,7 +149,7 @@ object PayoutRunner {
             return when {
                 failure != null -> Triple(if (pinSent) "unknown" else "failed", failure!!, pinSent)
                 resultText != null -> Triple("done", resultText!!, pinSent)
-                !sawDialog -> Triple("failed", "Aucune fenêtre USSD lue (accessibilité désactivée ou écran verrouillé par un code ?)", false)
+                !sawDialog -> Triple("failed", "Aucune fenêtre USSD reconnue (fenêtres vues : ${seenPackages.joinToString(", ").ifEmpty { "aucune" }}). Accessibilité activée ? Écran sans code ?", false)
                 else -> Triple(if (pinSent) "unknown" else "failed", "Pas de réponse finale de l'opérateur", pinSent)
             }
         } finally {

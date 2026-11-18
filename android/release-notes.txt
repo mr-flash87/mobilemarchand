@@ -1,4 +1,3 @@
-Nouveau tableau de bord plus lisible : grandes cartes, gros chiffres et barre de navigation en bas (Accueil, Envois, Journal, Réglages).
-Nouveau : envois et remboursements par Wave. Le téléphone ouvre l'application Wave et fait l'envoi tout seul (Transfert > nouveau numéro > montant > Envoyer).
-Pour l'activer : onglet « Envois » > activez Wave (l'application Wave doit être installée et connectée sur ce téléphone).
+Correction importante des envois d'argent (Orange, Moov) : l'application lit maintenant uniquement la fenêtre USSD de l'opérateur, et plus l'écran d'accueil, la messagerie ou ses propres écrans.
+Un envoi n'est marqué « Envoyé » que si la réponse de l'opérateur cite le montant ou le numéro du bénéficiaire.
 Mise à jour directe par-dessus l'ancienne version.

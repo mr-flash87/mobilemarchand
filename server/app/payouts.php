@@ -321,6 +321,19 @@ function payout_report(array $o, array $device, string $status, string $message,
     $op = operator_by_code($o['operator'], $o['scope_id'] !== null ? (int)$o['scope_id'] : null);
     if ($status === 'done') {
         $status = payout_classify($message, $op);
+        // « Réussi » seulement si la réponse de l'opérateur parle bien de CET envoi (montant ou numéro).
+        if ($status === 'success') {
+            $digits = preg_replace('/\D+/', '', $message);
+            $amt = (string)(int)$o['amount'];
+            $mentions = str_contains(preg_replace('/[\s.,]/', '', $message), $amt) || str_contains($digits, substr($o['phone'], -6));
+            if (!$mentions) {
+                $status = 'unknown';
+            }
+        }
+    }
+    // Sans code secret saisi, aucun argent ne peut partir.
+    if (!$pinSent) {
+        $status = 'failed';
     }
     if (!in_array($status, ['success', 'failed', 'unknown'], true)) {
         $status = 'unknown';
@@ -376,7 +389,7 @@ function payout_resolve(array $o, string $status, string $by): bool
         'status' => $status,
         'completed_at' => now(),
         'result_text' => trim(($o['result_text'] ?? '') . ' [' . ($status === 'success' ? 'confirmé' : 'déclaré échoué') . ' par ' . $by . ']'),
-    ], "id = :id AND status IN ('unknown','sending')", ['id' => $o['id']]);
+    ], $status === 'failed' ? "id = :id AND status IN ('unknown','sending','success')" : "id = :id AND status IN ('unknown','sending')", ['id' => $o['id']]);
     if ($n === 1) {
         payout_after_result(q_one('SELECT * FROM payouts WHERE id = ?', [$o['id']]));
     }

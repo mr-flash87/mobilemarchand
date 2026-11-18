@@ -27,11 +27,12 @@ class UssdAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (PayoutRunner.job == null || event == null) return
         if (PayoutRunner.job?.ussd?.startsWith("app:") == true) return // envoi Wave : piloté par WaveDriver
+        // UNIQUEMENT les fenêtres du système téléphonique (USSD). Jamais l'écran d'accueil, la messagerie,
+        // les notifications ni notre propre application.
         val pkg = event.packageName?.toString() ?: return
-        if (pkg == packageName) return
-        val cls = event.className?.toString() ?: ""
-        if (!USSD_PKG.containsMatchIn(pkg) && !cls.contains("AlertDialog") && !cls.contains("Dialog")) return
-        val root = rootInActiveWindow ?: event.source ?: return
+        if (PayoutRunner.seenPackages.size < 12) PayoutRunner.seenPackages += pkg
+        if (pkg == packageName || !USSD_PKG.containsMatchIn(pkg) || EXCLUDED.containsMatchIn(pkg)) return
+        val root = ussdRoot(event) ?: return
 
         val texts = mutableListOf<String>()
         val buttons = mutableListOf<AccessibilityNodeInfo>()
@@ -47,7 +48,7 @@ class UssdAccessibilityService : AccessibilityService() {
         val message = texts.distinct().joinToString(" ").replace(Regex("\\s+"), " ").trim()
         if (message.isEmpty()) return
         // « Exécution du code USSD… » : fenêtre d'attente, rien à faire.
-        if (input == null && buttons.isEmpty() && RUNNING.containsMatchIn(message)) return
+        if (input == null && (buttons.isEmpty() || message.length < 60) && RUNNING.containsMatchIn(message)) return
         PayoutRunner.sawDialog = true
 
         val sig = message + "|" + (input != null)
@@ -58,6 +59,22 @@ class UssdAccessibilityService : AccessibilityService() {
         PayoutRunner.handle(this, message, input, buttons)
     }
 
+    /** Racine de la fenêtre USSD : la fenêtre active si elle appartient au téléphone, sinon celle de l'événement. */
+    private fun ussdRoot(event: AccessibilityEvent): AccessibilityNodeInfo? {
+        rootInActiveWindow?.let { r ->
+            val p = r.packageName?.toString() ?: ""
+            if (USSD_PKG.containsMatchIn(p) && !EXCLUDED.containsMatchIn(p)) return r
+        }
+        var n = event.source ?: return null
+        var i = 0
+        while (i < 40) {
+            n = n.parent ?: break
+            i++
+        }
+        val p = n.packageName?.toString() ?: ""
+        return if (USSD_PKG.containsMatchIn(p) && !EXCLUDED.containsMatchIn(p)) n else null
+    }
+
     private fun walk(n: AccessibilityNodeInfo?, depth: Int, visit: (AccessibilityNodeInfo) -> Unit) {
         if (n == null || depth > 25) return
         visit(n)
@@ -66,7 +83,8 @@ class UssdAccessibilityService : AccessibilityService() {
 
     companion object {
         @Volatile var instance: UssdAccessibilityService? = null
-        private val USSD_PKG = Regex("phone|telephony|telecom|ussd|mmi|stk|dialer|contacts|incallui", RegexOption.IGNORE_CASE)
+        private val USSD_PKG = Regex("^com\\.android\\.phone$|telephony|telecom|ussd|mmi|\\.stk", RegexOption.IGNORE_CASE)
+        private val EXCLUDED = Regex("launcher|systemui|mms|message|messaging|contacts|dialer|incallui|flashpay", RegexOption.IGNORE_CASE)
         private val RUNNING = Regex("ex[ée]cution|en cours|running|veuillez patienter|please wait|chargement|loading", RegexOption.IGNORE_CASE)
     }
 }
